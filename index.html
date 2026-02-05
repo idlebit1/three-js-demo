@@ -47,15 +47,26 @@
 <body>
     <div id="info">🐼 Nintendo Style Panda<br><small>Drag to rotate • Scroll to zoom</small></div>
     <div id="controls">
-        <label>Character</label>
+        <label>World</label>
+        <select id="worldSelect">
+            <option value="bamboo">Calm Bamboo</option>
+            <option value="lava">Lava</option>
+            <option value="drift">Amber Drift</option>
+            <option value="voltage">Voltage</option>
+            <option value="hearth">Hearth</option>
+            <option value="simmer">Simmer</option>
+            <option value="glade">Forest Glade</option>
+        </select>
+        <label style="margin-top: 12px;">Character</label>
         <select id="characterSelect">
             <option value="panda">Panda</option>
             <option value="sphere">Sphere</option>
         </select>
         <label style="margin-top: 12px;">Reflection Mode</label>
         <select id="reflectionMode">
-            <option value="realtime">Crisp (Real-time)</option>
+            <option value="realtime">Crisp (CubeCamera)</option>
             <option value="gradient">Soft (Gradient)</option>
+            <option value="ssr">Screen Space (SSR)</option>
         </select>
         <label style="margin-top: 12px;">Mirror Parts</label>
         <select id="mirrorParts">
@@ -89,6 +100,14 @@
             <input type="checkbox" id="birdCollisionToggle" style="margin-right: 6px;">
             Bird Collisions
         </label>
+        <label style="margin-top: 12px;">
+            <input type="checkbox" id="auraToggle" style="margin-right: 6px;">
+            Energy Aura
+        </label>
+        <label style="margin-top: 12px;">
+            <input type="checkbox" id="cameraCreatureToggle" style="margin-right: 6px;">
+            Camera Creature
+        </label>
     </div>
 
     <script type="importmap">
@@ -105,6 +124,10 @@
         import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
         import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
         import { RGBELoader } from 'three/addons/loaders/RGBELoader.js';
+        import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+        import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+        import { SSRPass } from 'three/addons/postprocessing/SSRPass.js';
+        import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 
         // Scene setup
         const scene = new THREE.Scene();
@@ -146,7 +169,7 @@
         const gradientEnvMap = createGradientEnvironment();
 
         // Reflection mode state
-        let useRealtimeReflections = true;
+        let reflectionMode = 'realtime'; // 'realtime', 'gradient', 'ssr'
 
         const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
         camera.position.set(0, 2, 8);
@@ -163,8 +186,8 @@
         const controls = new OrbitControls(camera, renderer.domElement);
         controls.enableDamping = true;
         controls.dampingFactor = 0.05;
-        controls.minDistance = 4;
-        controls.maxDistance = 15;
+        controls.minDistance = 0;
+        controls.maxDistance = 30;
         controls.target.set(0, 1.5, 0);
 
         // Lighting - attached to camera so it follows the view
@@ -367,6 +390,224 @@
             transparent: true,
             opacity: 0.6,
         });
+
+        // ============================================
+        // ENERGY AURA SHADER
+        // ============================================
+        const auraShader = {
+            uniforms: {
+                time: { value: 0 },
+                color1: { value: new THREE.Color(0x00ffff) },
+                color2: { value: new THREE.Color(0xff00ff) },
+                pulseSpeed: { value: 2.0 },
+                noiseScale: { value: 3.0 },
+            },
+            vertexShader: `
+                varying vec3 vNormal;
+                varying vec3 vWorldPosition;
+                varying float vDisplacement;
+                uniform float time;
+                uniform float noiseScale;
+
+                // Simplex noise function
+                vec3 mod289(vec3 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
+                vec4 mod289(vec4 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
+                vec4 permute(vec4 x) { return mod289(((x*34.0)+1.0)*x); }
+                vec4 taylorInvSqrt(vec4 r) { return 1.79284291400159 - 0.85373472095314 * r; }
+
+                float snoise(vec3 v) {
+                    const vec2 C = vec2(1.0/6.0, 1.0/3.0);
+                    const vec4 D = vec4(0.0, 0.5, 1.0, 2.0);
+                    vec3 i  = floor(v + dot(v, C.yyy));
+                    vec3 x0 = v - i + dot(i, C.xxx);
+                    vec3 g = step(x0.yzx, x0.xyz);
+                    vec3 l = 1.0 - g;
+                    vec3 i1 = min(g.xyz, l.zxy);
+                    vec3 i2 = max(g.xyz, l.zxy);
+                    vec3 x1 = x0 - i1 + C.xxx;
+                    vec3 x2 = x0 - i2 + C.yyy;
+                    vec3 x3 = x0 - D.yyy;
+                    i = mod289(i);
+                    vec4 p = permute(permute(permute(
+                        i.z + vec4(0.0, i1.z, i2.z, 1.0))
+                        + i.y + vec4(0.0, i1.y, i2.y, 1.0))
+                        + i.x + vec4(0.0, i1.x, i2.x, 1.0));
+                    float n_ = 0.142857142857;
+                    vec3 ns = n_ * D.wyz - D.xzx;
+                    vec4 j = p - 49.0 * floor(p * ns.z * ns.z);
+                    vec4 x_ = floor(j * ns.z);
+                    vec4 y_ = floor(j - 7.0 * x_);
+                    vec4 x = x_ *ns.x + ns.yyyy;
+                    vec4 y = y_ *ns.x + ns.yyyy;
+                    vec4 h = 1.0 - abs(x) - abs(y);
+                    vec4 b0 = vec4(x.xy, y.xy);
+                    vec4 b1 = vec4(x.zw, y.zw);
+                    vec4 s0 = floor(b0)*2.0 + 1.0;
+                    vec4 s1 = floor(b1)*2.0 + 1.0;
+                    vec4 sh = -step(h, vec4(0.0));
+                    vec4 a0 = b0.xzyw + s0.xzyw*sh.xxyy;
+                    vec4 a1 = b1.xzyw + s1.xzyw*sh.zzww;
+                    vec3 p0 = vec3(a0.xy, h.x);
+                    vec3 p1 = vec3(a0.zw, h.y);
+                    vec3 p2 = vec3(a1.xy, h.z);
+                    vec3 p3 = vec3(a1.zw, h.w);
+                    vec4 norm = taylorInvSqrt(vec4(dot(p0,p0), dot(p1,p1), dot(p2,p2), dot(p3,p3)));
+                    p0 *= norm.x;
+                    p1 *= norm.y;
+                    p2 *= norm.z;
+                    p3 *= norm.w;
+                    vec4 m = max(0.6 - vec4(dot(x0,x0), dot(x1,x1), dot(x2,x2), dot(x3,x3)), 0.0);
+                    m = m * m;
+                    return 42.0 * dot(m*m, vec4(dot(p0,x0), dot(p1,x1), dot(p2,x2), dot(p3,x3)));
+                }
+
+                void main() {
+                    vNormal = normalize(normalMatrix * normal);
+
+                    // Animated noise displacement
+                    float noise = snoise(position * noiseScale + time * 0.5);
+                    float pulse = sin(time * 2.0) * 0.5 + 0.5;
+                    vDisplacement = noise * 0.15 + pulse * 0.1;
+
+                    // Push vertices outward along normal with noise
+                    vec3 newPosition = position + normal * (0.15 + vDisplacement * 0.2);
+
+                    vWorldPosition = (modelMatrix * vec4(newPosition, 1.0)).xyz;
+                    gl_Position = projectionMatrix * modelViewMatrix * vec4(newPosition, 1.0);
+                }
+            `,
+            fragmentShader: `
+                varying vec3 vNormal;
+                varying vec3 vWorldPosition;
+                varying float vDisplacement;
+                uniform float time;
+                uniform vec3 color1;
+                uniform vec3 color2;
+                uniform float pulseSpeed;
+
+                void main() {
+                    // Fresnel for edge glow
+                    vec3 viewDir = normalize(cameraPosition - vWorldPosition);
+                    float fresnel = pow(1.0 - abs(dot(viewDir, vNormal)), 2.5);
+
+                    // Pulsing color mix
+                    float colorPulse = sin(time * pulseSpeed + vWorldPosition.y * 2.0) * 0.5 + 0.5;
+                    vec3 auraColor = mix(color1, color2, colorPulse);
+
+                    // Add energy flickers
+                    float flicker = sin(time * 20.0 + vWorldPosition.y * 10.0) * 0.1 + 0.9;
+
+                    // Combine
+                    vec3 finalColor = auraColor * (fresnel * 2.0 + 0.3) * flicker;
+                    finalColor += pow(fresnel, 4.0) * vec3(1.0); // Bright edge highlight
+
+                    // Alpha - visible at edges, transparent in middle
+                    float alpha = fresnel * 0.8 * flicker;
+                    alpha += vDisplacement * 0.3;
+                    alpha = clamp(alpha, 0.0, 0.9);
+
+                    gl_FragColor = vec4(finalColor, alpha);
+                }
+            `
+        };
+
+        const auraMaterial = new THREE.ShaderMaterial({
+            uniforms: auraShader.uniforms,
+            vertexShader: auraShader.vertexShader,
+            fragmentShader: auraShader.fragmentShader,
+            transparent: true,
+            side: THREE.BackSide, // Render inside-out so it surrounds the object
+            depthWrite: false,
+            blending: THREE.AdditiveBlending,
+        });
+
+        let auraEnabled = false;
+        const auraMeshes = []; // Store aura meshes
+
+        // ============================================
+        // CAMERA CREATURE
+        // ============================================
+        const cameraCreature = new THREE.Group();
+
+        // Creature body - ghostly blob shape
+        const creatureBodyProfile = [
+            new THREE.Vector2(0, 0),
+            new THREE.Vector2(0.15, 0.05),
+            new THREE.Vector2(0.25, 0.15),
+            new THREE.Vector2(0.3, 0.3),
+            new THREE.Vector2(0.32, 0.5),
+            new THREE.Vector2(0.3, 0.7),
+            new THREE.Vector2(0.25, 0.85),
+            new THREE.Vector2(0.15, 0.95),
+            new THREE.Vector2(0, 1.0),
+        ];
+
+        const creatureMaterial = new THREE.MeshStandardMaterial({
+            color: 0x88ddff,
+            roughness: 0.3,
+            metalness: 0.1,
+            transparent: true,
+            opacity: 0.85,
+        });
+
+        const creatureBody = createSmoothMesh(creatureBodyProfile, 6, 16, creatureMaterial);
+        creatureBody.scale.set(1, 1.2, 0.8);
+        cameraCreature.add(creatureBody);
+
+        // Big cute eyes
+        const creatureEyeWhiteMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+        const creatureEyePupilMat = new THREE.MeshBasicMaterial({ color: 0x000000 });
+
+        function createCreatureEye(xPos) {
+            const eyeGroup = new THREE.Group();
+
+            let eyeWhiteGeo = new THREE.IcosahedronGeometry(0.1, 2);
+            eyeWhiteGeo = smoothGeometry(eyeWhiteGeo);
+            const eyeWhite = new THREE.Mesh(eyeWhiteGeo, creatureEyeWhiteMat);
+            eyeWhite.scale.set(1, 1.2, 0.6);
+            eyeGroup.add(eyeWhite);
+
+            let pupilGeo = new THREE.IcosahedronGeometry(0.05, 2);
+            pupilGeo = smoothGeometry(pupilGeo);
+            const pupil = new THREE.Mesh(pupilGeo, creatureEyePupilMat);
+            pupil.position.z = 0.05;
+            eyeGroup.add(pupil);
+
+            eyeGroup.position.set(xPos, 0.7, 0.2);
+            return eyeGroup;
+        }
+
+        cameraCreature.add(createCreatureEye(-0.12));
+        cameraCreature.add(createCreatureEye(0.12));
+
+        // Little arms/tentacles
+        const armMaterial = new THREE.MeshStandardMaterial({
+            color: 0x88ddff,
+            roughness: 0.3,
+            metalness: 0.1,
+        });
+
+        function createCreatureArm(xPos, zRot) {
+            let armGeo = new THREE.CapsuleGeometry(0.04, 0.2, 4, 8);
+            const arm = new THREE.Mesh(armGeo, armMaterial);
+            arm.position.set(xPos, 0.4, 0.15);
+            arm.rotation.z = zRot;
+            arm.rotation.x = -0.3;
+            return arm;
+        }
+
+        const creatureLeftArm = createCreatureArm(-0.25, 0.5);
+        const creatureRightArm = createCreatureArm(0.25, -0.5);
+        cameraCreature.add(creatureLeftArm);
+        cameraCreature.add(creatureRightArm);
+
+        // Position creature right behind camera, facing same direction
+        cameraCreature.position.set(0, 0.2, 0.3);
+        cameraCreature.rotation.y = Math.PI; // Face same direction as camera
+        cameraCreature.visible = false;
+        camera.add(cameraCreature);
+
+        let cameraCreatureEnabled = false;
 
         const panda = new THREE.Group();
 
@@ -847,6 +1088,10 @@
             // Update morphable parts
             updateMorphableParts();
 
+            // Update SSR selects
+            ssrSelects.length = 0;
+            ssrSelects.push(currentCharacter.body);
+
             // Reset mirror parts dropdown
             document.getElementById('mirrorParts').value = 'body';
             applyMirrorSetting('body');
@@ -894,7 +1139,14 @@
         }
 
         // ============================================
-        // GROUND - Custom organic platform
+        // WORLDS
+        // ============================================
+        let currentWorld = 'bamboo';
+        const bambooWorld = new THREE.Group();
+        const lavaWorld = new THREE.Group();
+
+        // ============================================
+        // BAMBOO WORLD
         // ============================================
         const groundProfile = [
             new THREE.Vector2(0, -0.3),
@@ -915,11 +1167,9 @@
         const ground = createSmoothMesh(groundProfile, 6, 48, groundMaterial);
         ground.position.y = -0.1;
         ground.receiveShadow = true;
-        scene.add(ground);
+        bambooWorld.add(ground);
 
-        // ============================================
-        // BAMBOO - Procedural bamboo stalks
-        // ============================================
+        // Bamboo stalks
         function createBamboo(x, z, height) {
             const bambooGroup = new THREE.Group();
             const segments = Math.floor(height / 0.6);
@@ -930,14 +1180,12 @@
                 metalness: 0.1,
             });
 
-            // Create bamboo stalk as single mesh
             const stalkProfile = [];
             for (let i = 0; i <= segments; i++) {
                 const y = i * 0.6;
                 const r = 0.06 + Math.sin(i * Math.PI / segments) * 0.01;
                 stalkProfile.push(new THREE.Vector2(r, y));
 
-                // Add node bulge
                 if (i < segments) {
                     stalkProfile.push(new THREE.Vector2(r + 0.015, y + 0.55));
                     stalkProfile.push(new THREE.Vector2(r + 0.02, y + 0.58));
@@ -950,7 +1198,6 @@
             stalk.castShadow = true;
             bambooGroup.add(stalk);
 
-            // Leaves
             const leafMaterial = new THREE.MeshStandardMaterial({
                 color: 0x5a9c2e,
                 roughness: 0.8,
@@ -983,12 +1230,1826 @@
             return bambooGroup;
         }
 
-        scene.add(createBamboo(-2.5, -1, 3.5));
-        scene.add(createBamboo(-2.2, -1.5, 4));
-        scene.add(createBamboo(-2.7, -0.5, 3));
-        scene.add(createBamboo(2.5, -0.8, 3.8));
-        scene.add(createBamboo(2.3, -1.3, 3.2));
-        scene.add(createBamboo(2.6, -0.3, 4.2));
+        bambooWorld.add(createBamboo(-2.5, -1, 3.5));
+        bambooWorld.add(createBamboo(-2.2, -1.5, 4));
+        bambooWorld.add(createBamboo(-2.7, -0.5, 3));
+        bambooWorld.add(createBamboo(2.5, -0.8, 3.8));
+        bambooWorld.add(createBamboo(2.3, -1.3, 3.2));
+        bambooWorld.add(createBamboo(2.6, -0.3, 4.2));
+
+        scene.add(bambooWorld);
+
+        // ============================================
+        // LAVA WORLD
+        // ============================================
+        // Volcanic rock ground
+        const lavaGroundMaterial = new THREE.MeshStandardMaterial({
+            color: 0x2a1a1a,
+            roughness: 0.95,
+            metalness: 0.1,
+        });
+
+        const lavaGround = createSmoothMesh(groundProfile, 6, 48, lavaGroundMaterial);
+        lavaGround.position.y = -0.1;
+        lavaGround.receiveShadow = true;
+        lavaWorld.add(lavaGround);
+
+        // Glowing lava pools
+        const lavaMaterial = new THREE.MeshStandardMaterial({
+            color: 0xff4400,
+            roughness: 0.3,
+            metalness: 0.0,
+            emissive: 0xff2200,
+            emissiveIntensity: 2,
+        });
+
+        function createLavaPool(x, z, radius) {
+            let poolGeo = new THREE.CylinderGeometry(radius, radius * 0.8, 0.1, 16);
+            const pool = new THREE.Mesh(poolGeo, lavaMaterial);
+            pool.position.set(x, 0.05, z);
+            return pool;
+        }
+
+        lavaWorld.add(createLavaPool(-2, -1.2, 0.5));
+        lavaWorld.add(createLavaPool(2.2, -0.8, 0.4));
+        lavaWorld.add(createLavaPool(0, -2.5, 0.7));
+
+        // Volcanic rocks
+        const rockMaterial = new THREE.MeshStandardMaterial({
+            color: 0x1a0a0a,
+            roughness: 1.0,
+            metalness: 0.0,
+        });
+
+        function createRock(x, z, scale) {
+            let rockGeo = new THREE.IcosahedronGeometry(0.4, 0);
+            const positions = rockGeo.attributes.position.array;
+            for (let i = 0; i < positions.length; i += 3) {
+                positions[i] += (Math.random() - 0.5) * 0.15;
+                positions[i + 1] += (Math.random() - 0.5) * 0.15;
+                positions[i + 2] += (Math.random() - 0.5) * 0.15;
+            }
+            rockGeo.computeVertexNormals();
+
+            const rock = new THREE.Mesh(rockGeo, rockMaterial);
+            rock.position.set(x, 0.2, z);
+            rock.scale.set(scale, scale * 0.7, scale);
+            rock.rotation.y = Math.random() * Math.PI;
+            rock.castShadow = true;
+            return rock;
+        }
+
+        lavaWorld.add(createRock(-2.5, -0.5, 1.2));
+        lavaWorld.add(createRock(-2.0, 0.3, 0.8));
+        lavaWorld.add(createRock(2.4, -0.3, 1.0));
+        lavaWorld.add(createRock(2.0, 0.5, 0.6));
+        lavaWorld.add(createRock(0, -1.8, 0.5));
+
+        // Embers/particles floating up
+        const emberMaterial = new THREE.MeshBasicMaterial({
+            color: 0xff6600,
+            transparent: true,
+            opacity: 0.8,
+        });
+
+        const embers = [];
+        for (let i = 0; i < 50; i++) {
+            let emberGeo = new THREE.SphereGeometry(0.02 + Math.random() * 0.03, 4, 4);
+            const ember = new THREE.Mesh(emberGeo, emberMaterial.clone());
+            ember.material.opacity = 0.5 + Math.random() * 0.5;
+            ember.position.set(
+                (Math.random() - 0.5) * 6,
+                Math.random() * 5,
+                (Math.random() - 0.5) * 6
+            );
+            ember.userData.speed = 0.5 + Math.random() * 1;
+            ember.userData.drift = (Math.random() - 0.5) * 0.5;
+            embers.push(ember);
+            lavaWorld.add(ember);
+        }
+
+        lavaWorld.visible = false;
+        scene.add(lavaWorld);
+
+        // ============================================
+        // AMBER DRIFT WORLD
+        // ============================================
+        const driftWorld = new THREE.Group();
+
+        // Worn wooden floor - smooth, slightly grainy
+        const floorMaterial = new THREE.MeshStandardMaterial({
+            color: 0x8b7355,
+            roughness: 0.85,
+            metalness: 0.0,
+        });
+
+        const floorGeo = new THREE.PlaneGeometry(12, 12, 1, 1);
+        const floor = new THREE.Mesh(floorGeo, floorMaterial);
+        floor.rotation.x = -Math.PI / 2;
+        floor.position.y = -0.1;
+        floor.receiveShadow = true;
+        driftWorld.add(floor);
+
+        // Dust motes floating in the amber light
+        const dustMotes = [];
+        const dustMaterial = new THREE.MeshBasicMaterial({
+            color: 0xffeebb,
+            transparent: true,
+            opacity: 0.4,
+        });
+
+        for (let i = 0; i < 200; i++) {
+            const size = 0.008 + Math.random() * 0.015;
+            const dustGeo = new THREE.SphereGeometry(size, 4, 4);
+            const dust = new THREE.Mesh(dustGeo, dustMaterial.clone());
+            dust.material.opacity = 0.2 + Math.random() * 0.4;
+
+            dust.position.set(
+                (Math.random() - 0.5) * 8,
+                Math.random() * 6,
+                (Math.random() - 0.5) * 8
+            );
+
+            dust.userData = {
+                baseY: dust.position.y,
+                driftSpeed: 0.1 + Math.random() * 0.2,
+                driftPhase: Math.random() * Math.PI * 2,
+                swayAmount: 0.3 + Math.random() * 0.5,
+                swaySpeed: 0.2 + Math.random() * 0.3,
+            };
+
+            dustMotes.push(dust);
+            driftWorld.add(dust);
+        }
+
+        // Smooth, worn stones floating gently - low gravity
+        const floatingStones = [];
+        const stoneMaterial = new THREE.MeshStandardMaterial({
+            color: 0xa09080,
+            roughness: 0.7,
+            metalness: 0.1,
+        });
+
+        for (let i = 0; i < 8; i++) {
+            let stoneGeo = new THREE.IcosahedronGeometry(0.15 + Math.random() * 0.2, 2);
+            // Smooth the stone slightly
+            const positions = stoneGeo.attributes.position.array;
+            for (let j = 0; j < positions.length; j += 3) {
+                positions[j] *= 0.8 + Math.random() * 0.4;
+                positions[j + 1] *= 0.7 + Math.random() * 0.3;
+                positions[j + 2] *= 0.8 + Math.random() * 0.4;
+            }
+            stoneGeo = smoothGeometry(stoneGeo);
+
+            const stone = new THREE.Mesh(stoneGeo, stoneMaterial.clone());
+            stone.material.color.setHSL(0.08 + Math.random() * 0.05, 0.15, 0.5 + Math.random() * 0.15);
+
+            // Position in a loose arrangement
+            const angle = (i / 8) * Math.PI * 2 + Math.random() * 0.5;
+            const radius = 2 + Math.random() * 2;
+            stone.position.set(
+                Math.cos(angle) * radius,
+                1 + Math.random() * 3,
+                Math.sin(angle) * radius
+            );
+
+            stone.userData = {
+                baseY: stone.position.y,
+                floatSpeed: 0.15 + Math.random() * 0.1,
+                floatPhase: Math.random() * Math.PI * 2,
+                floatAmount: 0.1 + Math.random() * 0.15,
+                rotateSpeed: 0.05 + Math.random() * 0.1,
+            };
+
+            stone.castShadow = true;
+            floatingStones.push(stone);
+            driftWorld.add(stone);
+        }
+
+        // Light shaft - that slanting late afternoon beam
+        const shaftGeo = new THREE.CylinderGeometry(0.8, 1.5, 8, 16, 1, true);
+        const shaftMaterial = new THREE.MeshBasicMaterial({
+            color: 0xffdd99,
+            transparent: true,
+            opacity: 0.06,
+            side: THREE.DoubleSide,
+            depthWrite: false,
+        });
+        const lightShaft = new THREE.Mesh(shaftGeo, shaftMaterial);
+        lightShaft.position.set(2, 3, -1);
+        lightShaft.rotation.z = 0.4;
+        lightShaft.rotation.x = 0.2;
+        driftWorld.add(lightShaft);
+
+        // Second, fainter shaft
+        const shaft2 = new THREE.Mesh(shaftGeo.clone(), shaftMaterial.clone());
+        shaft2.material.opacity = 0.03;
+        shaft2.position.set(-1.5, 3.5, 1);
+        shaft2.rotation.z = -0.3;
+        shaft2.rotation.x = -0.15;
+        shaft2.scale.set(0.7, 1, 0.7);
+        driftWorld.add(shaft2);
+
+        // A few gentle, abstract forms - like thoughts you notice but don't chase
+        const thoughtMaterial = new THREE.MeshStandardMaterial({
+            color: 0xc4a882,
+            roughness: 0.6,
+            metalness: 0.15,
+            transparent: true,
+            opacity: 0.7,
+        });
+
+        // Worn paper-like planes, slightly curled
+        for (let i = 0; i < 3; i++) {
+            const paperGeo = new THREE.PlaneGeometry(0.4, 0.3, 8, 8);
+            const paperPositions = paperGeo.attributes.position.array;
+            for (let j = 0; j < paperPositions.length; j += 3) {
+                // Gentle curl
+                paperPositions[j + 2] = Math.sin(paperPositions[j] * 3) * 0.03 +
+                                        Math.cos(paperPositions[j + 1] * 2) * 0.02;
+            }
+            paperGeo.computeVertexNormals();
+
+            const paper = new THREE.Mesh(paperGeo, thoughtMaterial.clone());
+            paper.material.opacity = 0.4 + Math.random() * 0.3;
+            paper.material.side = THREE.DoubleSide;
+
+            paper.position.set(
+                (Math.random() - 0.5) * 4,
+                1.5 + Math.random() * 2,
+                (Math.random() - 0.5) * 4
+            );
+            paper.rotation.set(
+                Math.random() * 0.5,
+                Math.random() * Math.PI,
+                Math.random() * 0.3
+            );
+
+            paper.userData = {
+                baseY: paper.position.y,
+                driftSpeed: 0.08 + Math.random() * 0.05,
+                driftPhase: Math.random() * Math.PI * 2,
+            };
+
+            floatingStones.push(paper); // Reuse the animation array
+            driftWorld.add(paper);
+        }
+
+        driftWorld.visible = false;
+        scene.add(driftWorld);
+
+        // Amber drift specific light (will be toggled)
+        const amberLight = new THREE.DirectionalLight(0xffaa55, 0.8);
+        amberLight.position.set(5, 4, -2);
+        amberLight.visible = false;
+        scene.add(amberLight);
+
+        // ============================================
+        // VOLTAGE WORLD - overcaffeinated, feral, buzzing
+        // ============================================
+        const voltageWorld = new THREE.Group();
+
+        // Industrial concrete floor with grid lines
+        const concreteFloor = new THREE.Mesh(
+            new THREE.PlaneGeometry(14, 14),
+            new THREE.MeshStandardMaterial({
+                color: 0x3a3a3a,
+                roughness: 0.9,
+                metalness: 0.1,
+            })
+        );
+        concreteFloor.rotation.x = -Math.PI / 2;
+        concreteFloor.position.y = -0.1;
+        concreteFloor.receiveShadow = true;
+        voltageWorld.add(concreteFloor);
+
+        // Grid lines on floor - that organized but constrained feeling
+        const gridMaterial = new THREE.LineBasicMaterial({ color: 0x00ffff, transparent: true, opacity: 0.3 });
+        for (let i = -6; i <= 6; i += 1) {
+            const lineGeoH = new THREE.BufferGeometry().setFromPoints([
+                new THREE.Vector3(-7, 0.01, i),
+                new THREE.Vector3(7, 0.01, i)
+            ]);
+            const lineGeoV = new THREE.BufferGeometry().setFromPoints([
+                new THREE.Vector3(i, 0.01, -7),
+                new THREE.Vector3(i, 0.01, 7)
+            ]);
+            voltageWorld.add(new THREE.Line(lineGeoH, gridMaterial));
+            voltageWorld.add(new THREE.Line(lineGeoV, gridMaterial));
+        }
+
+        // Spinning geometric objects - different speeds, restless
+        const spinners = [];
+        const spinnerMaterial = new THREE.MeshStandardMaterial({
+            color: 0x666666,
+            roughness: 0.3,
+            metalness: 0.8,
+        });
+
+        const spinnerShapes = [
+            new THREE.BoxGeometry(0.4, 0.4, 0.4),
+            new THREE.OctahedronGeometry(0.3),
+            new THREE.TetrahedronGeometry(0.35),
+            new THREE.TorusGeometry(0.25, 0.08, 8, 16),
+            new THREE.ConeGeometry(0.2, 0.5, 6),
+        ];
+
+        for (let i = 0; i < 12; i++) {
+            const geo = spinnerShapes[i % spinnerShapes.length].clone();
+            const spinner = new THREE.Mesh(geo, spinnerMaterial.clone());
+
+            // Harsh metallic colors
+            const hue = Math.random() < 0.3 ? 0.5 + Math.random() * 0.1 : 0; // cyan or gray
+            spinner.material.color.setHSL(hue, hue > 0 ? 0.7 : 0, 0.4 + Math.random() * 0.2);
+
+            const angle = (i / 12) * Math.PI * 2;
+            const radius = 2 + Math.random() * 2.5;
+            spinner.position.set(
+                Math.cos(angle) * radius,
+                0.5 + Math.random() * 3,
+                Math.sin(angle) * radius
+            );
+
+            spinner.userData = {
+                spinSpeedX: (Math.random() - 0.5) * 8,
+                spinSpeedY: (Math.random() - 0.5) * 10,
+                spinSpeedZ: (Math.random() - 0.5) * 6,
+                jitterAmount: 0.01 + Math.random() * 0.02,
+                basePos: spinner.position.clone(),
+                // Uneven rhythm - sudden accelerations
+                burstTimer: Math.random() * 5,
+                burstCooldown: 2 + Math.random() * 3,
+            };
+
+            spinner.castShadow = true;
+            spinners.push(spinner);
+            voltageWorld.add(spinner);
+        }
+
+        // Electric sparks - static electricity snapping
+        const sparks = [];
+        const sparkMaterial = new THREE.MeshBasicMaterial({
+            color: 0x00ffff,
+            transparent: true,
+        });
+
+        for (let i = 0; i < 40; i++) {
+            const spark = new THREE.Mesh(
+                new THREE.SphereGeometry(0.02, 4, 4),
+                sparkMaterial.clone()
+            );
+            spark.position.set(
+                (Math.random() - 0.5) * 10,
+                Math.random() * 5,
+                (Math.random() - 0.5) * 10
+            );
+            spark.userData = {
+                velocity: new THREE.Vector3(
+                    (Math.random() - 0.5) * 0.3,
+                    (Math.random() - 0.5) * 0.3,
+                    (Math.random() - 0.5) * 0.3
+                ),
+                life: Math.random(),
+                maxLife: 0.5 + Math.random() * 1,
+            };
+            spark.visible = false;
+            sparks.push(spark);
+            voltageWorld.add(spark);
+        }
+
+        // Lightning bolts - brief, erratic
+        const boltMaterial = new THREE.LineBasicMaterial({
+            color: 0x88ffff,
+            transparent: true,
+            linewidth: 2,
+        });
+        const bolts = [];
+
+        function createBolt() {
+            const points = [];
+            let y = 5;
+            let x = (Math.random() - 0.5) * 6;
+            let z = (Math.random() - 0.5) * 6;
+
+            while (y > 0) {
+                points.push(new THREE.Vector3(x, y, z));
+                y -= 0.3 + Math.random() * 0.4;
+                x += (Math.random() - 0.5) * 0.8;
+                z += (Math.random() - 0.5) * 0.8;
+            }
+
+            const geo = new THREE.BufferGeometry().setFromPoints(points);
+            const bolt = new THREE.Line(geo, boltMaterial.clone());
+            bolt.userData = { life: 0.1 + Math.random() * 0.1 };
+            bolt.visible = false;
+            return bolt;
+        }
+
+        for (let i = 0; i < 5; i++) {
+            const bolt = createBolt();
+            bolts.push(bolt);
+            voltageWorld.add(bolt);
+        }
+
+        // Floating screens/displays - flickering, glitching
+        const screenMaterial = new THREE.MeshBasicMaterial({
+            color: 0x00ff88,
+            transparent: true,
+            opacity: 0.7,
+        });
+
+        const screens = [];
+        for (let i = 0; i < 4; i++) {
+            const screen = new THREE.Mesh(
+                new THREE.PlaneGeometry(0.6, 0.4),
+                screenMaterial.clone()
+            );
+            const angle = (i / 4) * Math.PI * 2 + 0.3;
+            screen.position.set(
+                Math.cos(angle) * 3.5,
+                2 + Math.random(),
+                Math.sin(angle) * 3.5
+            );
+            screen.lookAt(0, 2, 0);
+            screen.userData = {
+                flickerSpeed: 10 + Math.random() * 20,
+                glitchChance: 0.02,
+                baseOpacity: 0.5 + Math.random() * 0.3,
+                hue: Math.random(),
+            };
+            screens.push(screen);
+            voltageWorld.add(screen);
+        }
+
+        // That one bright overhead light, humming too loud
+        const overheadLight = new THREE.PointLight(0xffffff, 2, 15);
+        overheadLight.position.set(0, 5, 0);
+        overheadLight.visible = false;
+        scene.add(overheadLight);
+
+        // Light fixture mesh
+        const fixtureMaterial = new THREE.MeshBasicMaterial({ color: 0xffffee });
+        const fixture = new THREE.Mesh(
+            new THREE.BoxGeometry(1.5, 0.1, 0.4),
+            fixtureMaterial
+        );
+        fixture.position.set(0, 5, 0);
+        voltageWorld.add(fixture);
+
+        voltageWorld.visible = false;
+        scene.add(voltageWorld);
+
+        // ============================================
+        // HEARTH WORLD - cozy, tired, family, warmth
+        // ============================================
+        const hearthWorld = new THREE.Group();
+
+        // Soft, warm floor - like a thick rug
+        const rugMaterial = new THREE.MeshStandardMaterial({
+            color: 0x8b6b4a,
+            roughness: 1.0,
+            metalness: 0.0,
+        });
+        const rug = new THREE.Mesh(
+            new THREE.CircleGeometry(5, 32),
+            rugMaterial
+        );
+        rug.rotation.x = -Math.PI / 2;
+        rug.position.y = -0.1;
+        rug.receiveShadow = true;
+        hearthWorld.add(rug);
+
+        // Warm glowing orbs - like distant lamps or candles
+        const glowOrbs = [];
+        const glowMaterial = new THREE.MeshBasicMaterial({
+            color: 0xffaa66,
+            transparent: true,
+            opacity: 0.6,
+        });
+
+        for (let i = 0; i < 8; i++) {
+            const size = 0.1 + Math.random() * 0.15;
+            const orb = new THREE.Mesh(
+                new THREE.SphereGeometry(size, 16, 16),
+                glowMaterial.clone()
+            );
+
+            const angle = (i / 8) * Math.PI * 2;
+            const radius = 3 + Math.random() * 1.5;
+            orb.position.set(
+                Math.cos(angle) * radius,
+                1 + Math.random() * 2,
+                Math.sin(angle) * radius
+            );
+
+            orb.userData = {
+                baseOpacity: 0.4 + Math.random() * 0.3,
+                pulseSpeed: 0.3 + Math.random() * 0.2,
+                pulsePhase: Math.random() * Math.PI * 2,
+            };
+
+            glowOrbs.push(orb);
+            hearthWorld.add(orb);
+        }
+
+        // Family cluster - soft shapes that stay close together
+        const familyGroup = new THREE.Group();
+        const familyMaterial = new THREE.MeshStandardMaterial({
+            color: 0xeeddcc,
+            roughness: 0.9,
+            metalness: 0.0,
+        });
+
+        // Parent shapes - larger, protective
+        const parent1Geo = new THREE.SphereGeometry(0.4, 16, 16);
+        const parent1 = new THREE.Mesh(parent1Geo, familyMaterial.clone());
+        parent1.material.color.setHex(0xddccbb);
+        parent1.position.set(-0.3, 0.4, 0);
+        parent1.scale.set(1, 0.9, 0.9);
+        familyGroup.add(parent1);
+
+        const parent2 = new THREE.Mesh(parent1Geo.clone(), familyMaterial.clone());
+        parent2.material.color.setHex(0xeeddcc);
+        parent2.position.set(0.35, 0.38, 0.1);
+        parent2.scale.set(0.95, 0.85, 0.85);
+        familyGroup.add(parent2);
+
+        // Kid shapes - smaller, nestled close
+        const kidGeo = new THREE.SphereGeometry(0.25, 16, 16);
+
+        const kid1 = new THREE.Mesh(kidGeo, familyMaterial.clone());
+        kid1.material.color.setHex(0xffeeee);
+        kid1.position.set(0, 0.25, 0.4);
+        kid1.scale.set(1, 0.9, 0.9);
+        familyGroup.add(kid1);
+
+        const kid2 = new THREE.Mesh(kidGeo.clone(), familyMaterial.clone());
+        kid2.material.color.setHex(0xeeffee);
+        kid2.position.set(-0.25, 0.22, 0.35);
+        kid2.scale.set(0.85, 0.8, 0.8);
+        familyGroup.add(kid2);
+
+        familyGroup.position.set(2.5, 0, -1);
+        hearthWorld.add(familyGroup);
+
+        // Soft floating cushion shapes
+        const cushions = [];
+        const cushionMaterial = new THREE.MeshStandardMaterial({
+            color: 0xcc9977,
+            roughness: 0.95,
+            metalness: 0.0,
+        });
+
+        for (let i = 0; i < 5; i++) {
+            let cushionGeo = new THREE.SphereGeometry(0.3 + Math.random() * 0.2, 12, 12);
+            const positions = cushionGeo.attributes.position.array;
+            // Squash into cushion shape
+            for (let j = 0; j < positions.length; j += 3) {
+                positions[j + 1] *= 0.4; // flatten
+            }
+            cushionGeo.computeVertexNormals();
+
+            const cushion = new THREE.Mesh(cushionGeo, cushionMaterial.clone());
+            cushion.material.color.setHSL(0.08 + Math.random() * 0.06, 0.3 + Math.random() * 0.2, 0.5 + Math.random() * 0.15);
+
+            const angle = Math.random() * Math.PI * 2;
+            const radius = 1.5 + Math.random() * 2;
+            cushion.position.set(
+                Math.cos(angle) * radius,
+                0.1,
+                Math.sin(angle) * radius
+            );
+            cushion.rotation.y = Math.random() * Math.PI;
+
+            cushions.push(cushion);
+            hearthWorld.add(cushion);
+        }
+
+        // Warm particles - like dust in firelight, but cozier
+        const hearthMotes = [];
+        const hearthMoteMaterial = new THREE.MeshBasicMaterial({
+            color: 0xffddaa,
+            transparent: true,
+            opacity: 0.3,
+        });
+
+        for (let i = 0; i < 60; i++) {
+            const mote = new THREE.Mesh(
+                new THREE.SphereGeometry(0.015 + Math.random() * 0.01, 4, 4),
+                hearthMoteMaterial.clone()
+            );
+            mote.material.opacity = 0.15 + Math.random() * 0.2;
+
+            mote.position.set(
+                (Math.random() - 0.5) * 6,
+                0.5 + Math.random() * 3,
+                (Math.random() - 0.5) * 6
+            );
+
+            mote.userData = {
+                baseY: mote.position.y,
+                floatSpeed: 0.15 + Math.random() * 0.1,
+                floatPhase: Math.random() * Math.PI * 2,
+            };
+
+            hearthMotes.push(mote);
+            hearthWorld.add(mote);
+        }
+
+        // Central warm glow - like a fireplace or lamp
+        const centralGlow = new THREE.PointLight(0xffaa55, 1.5, 10);
+        centralGlow.position.set(0, 1, 0);
+        centralGlow.visible = false;
+        scene.add(centralGlow);
+
+        // Soft blanket-like backdrop shapes
+        const blanketMaterial = new THREE.MeshStandardMaterial({
+            color: 0x997766,
+            roughness: 1.0,
+            metalness: 0.0,
+            side: THREE.DoubleSide,
+        });
+
+        for (let i = 0; i < 3; i++) {
+            const blanketGeo = new THREE.PlaneGeometry(2, 1.5, 8, 8);
+            const positions = blanketGeo.attributes.position.array;
+            // Soft waves
+            for (let j = 0; j < positions.length; j += 3) {
+                positions[j + 2] = Math.sin(positions[j] * 2) * 0.1 + Math.cos(positions[j + 1] * 2) * 0.08;
+            }
+            blanketGeo.computeVertexNormals();
+
+            const blanket = new THREE.Mesh(blanketGeo, blanketMaterial.clone());
+            blanket.material.color.setHSL(0.06 + Math.random() * 0.04, 0.25, 0.4 + Math.random() * 0.1);
+
+            const angle = (i / 3) * Math.PI * 2 + 0.5;
+            blanket.position.set(
+                Math.cos(angle) * 4,
+                0.8 + Math.random() * 0.5,
+                Math.sin(angle) * 4
+            );
+            blanket.rotation.y = angle + Math.PI;
+            blanket.rotation.x = -0.2;
+
+            hearthWorld.add(blanket);
+        }
+
+        hearthWorld.visible = false;
+        scene.add(hearthWorld);
+
+        // ============================================
+        // SIMMER WORLD - angry at misbehaving kids
+        // ============================================
+        const simmerWorld = new THREE.Group();
+
+        // Floor - should be orderly but isn't
+        const simmerFloor = new THREE.Mesh(
+            new THREE.PlaneGeometry(12, 12),
+            new THREE.MeshStandardMaterial({
+                color: 0x553333,
+                roughness: 0.8,
+                metalness: 0.1,
+            })
+        );
+        simmerFloor.rotation.x = -Math.PI / 2;
+        simmerFloor.position.y = -0.1;
+        simmerFloor.receiveShadow = true;
+        simmerWorld.add(simmerFloor);
+
+        // Scattered toys/objects that WON'T STAY WHERE THEY BELONG
+        const scatteredObjects = [];
+        const toyMaterial = new THREE.MeshStandardMaterial({
+            color: 0xdd6644,
+            roughness: 0.5,
+            metalness: 0.2,
+        });
+
+        const toyShapes = [
+            new THREE.BoxGeometry(0.2, 0.2, 0.2),
+            new THREE.SphereGeometry(0.15, 8, 8),
+            new THREE.ConeGeometry(0.12, 0.25, 6),
+            new THREE.CylinderGeometry(0.1, 0.1, 0.25, 8),
+            new THREE.TetrahedronGeometry(0.15),
+        ];
+
+        for (let i = 0; i < 25; i++) {
+            const geo = toyShapes[i % toyShapes.length].clone();
+            const obj = new THREE.Mesh(geo, toyMaterial.clone());
+
+            // Bright, chaotic colors
+            obj.material.color.setHSL(Math.random() * 0.15, 0.7, 0.5);
+
+            obj.position.set(
+                (Math.random() - 0.5) * 8,
+                0.15 + Math.random() * 0.1,
+                (Math.random() - 0.5) * 8
+            );
+            obj.rotation.set(
+                Math.random() * Math.PI,
+                Math.random() * Math.PI,
+                Math.random() * Math.PI
+            );
+
+            obj.userData = {
+                basePos: obj.position.clone(),
+                velocity: new THREE.Vector3(),
+                angularVel: new THREE.Vector3(
+                    (Math.random() - 0.5) * 2,
+                    (Math.random() - 0.5) * 2,
+                    (Math.random() - 0.5) * 2
+                ),
+                restlessness: 0.5 + Math.random() * 0.5,
+                scatterTimer: Math.random() * 3,
+            };
+
+            obj.castShadow = true;
+            scatteredObjects.push(obj);
+            simmerWorld.add(obj);
+        }
+
+        // Tipped over containers - things that SHOULD hold stuff
+        const containerMaterial = new THREE.MeshStandardMaterial({
+            color: 0x885544,
+            roughness: 0.7,
+            metalness: 0.1,
+        });
+
+        for (let i = 0; i < 3; i++) {
+            const container = new THREE.Mesh(
+                new THREE.CylinderGeometry(0.3, 0.35, 0.5, 12, 1, true),
+                containerMaterial
+            );
+            const angle = (i / 3) * Math.PI * 2 + 0.5;
+            container.position.set(
+                Math.cos(angle) * 3,
+                0.15,
+                Math.sin(angle) * 3
+            );
+            // Tipped over, spilling
+            container.rotation.z = Math.PI / 2 + (Math.random() - 0.5) * 0.3;
+            container.rotation.y = Math.random() * Math.PI;
+            simmerWorld.add(container);
+        }
+
+        // Heat waves / frustration pulses
+        const heatWaves = [];
+        const heatMaterial = new THREE.MeshBasicMaterial({
+            color: 0xff4422,
+            transparent: true,
+            opacity: 0.15,
+            side: THREE.DoubleSide,
+        });
+
+        for (let i = 0; i < 5; i++) {
+            const wave = new THREE.Mesh(
+                new THREE.RingGeometry(0.5, 0.7, 32),
+                heatMaterial.clone()
+            );
+            wave.rotation.x = -Math.PI / 2;
+            wave.position.y = 0.05;
+            wave.visible = false;
+            wave.userData = { scale: 1, life: 0 };
+            heatWaves.push(wave);
+            simmerWorld.add(wave);
+        }
+
+        // Pressure indicator - a shape that's about to burst
+        const pressureCore = new THREE.Mesh(
+            new THREE.IcosahedronGeometry(0.5, 2),
+            new THREE.MeshStandardMaterial({
+                color: 0xff3300,
+                roughness: 0.3,
+                metalness: 0.5,
+                emissive: 0xff2200,
+                emissiveIntensity: 0.5,
+            })
+        );
+        pressureCore.position.set(0, 2, 0);
+        simmerWorld.add(pressureCore);
+
+        // Steam/frustration particles rising
+        const steamParticles = [];
+        const steamMaterial = new THREE.MeshBasicMaterial({
+            color: 0xff6644,
+            transparent: true,
+            opacity: 0.4,
+        });
+
+        for (let i = 0; i < 30; i++) {
+            const steam = new THREE.Mesh(
+                new THREE.SphereGeometry(0.05, 4, 4),
+                steamMaterial.clone()
+            );
+            steam.position.set(
+                (Math.random() - 0.5) * 0.5,
+                2 + Math.random(),
+                (Math.random() - 0.5) * 0.5
+            );
+            steam.userData = {
+                speed: 0.5 + Math.random() * 0.5,
+                drift: (Math.random() - 0.5) * 0.3,
+            };
+            steam.visible = false;
+            steamParticles.push(steam);
+            simmerWorld.add(steam);
+        }
+
+        // Harsh overhead light - no patience left
+        const simmerLight = new THREE.PointLight(0xff6644, 1.5, 15);
+        simmerLight.position.set(0, 4, 0);
+        simmerLight.visible = false;
+        scene.add(simmerLight);
+
+        simmerWorld.visible = false;
+        scene.add(simmerWorld);
+
+        // ============================================
+        // FOREST GLADE WORLD - flora and fauna
+        // ============================================
+        const gladeWorld = new THREE.Group();
+
+        // Grassy ground with texture variation
+        const grassMaterial = new THREE.MeshStandardMaterial({
+            color: 0x3d8c40,
+            roughness: 0.9,
+            metalness: 0.0,
+        });
+        const gladeGround = new THREE.Mesh(
+            new THREE.CircleGeometry(8, 48),
+            grassMaterial
+        );
+        gladeGround.rotation.x = -Math.PI / 2;
+        gladeGround.position.y = -0.1;
+        gladeGround.receiveShadow = true;
+        gladeWorld.add(gladeGround);
+
+        // Grass blades
+        const grassBladeMaterial = new THREE.MeshStandardMaterial({
+            color: 0x4a9f4d,
+            roughness: 0.8,
+            side: THREE.DoubleSide,
+        });
+
+        const grassBlades = [];
+        for (let i = 0; i < 300; i++) {
+            const blade = new THREE.Mesh(
+                new THREE.PlaneGeometry(0.03, 0.15 + Math.random() * 0.15),
+                grassBladeMaterial.clone()
+            );
+            blade.material.color.setHSL(0.3 + Math.random() * 0.05, 0.5 + Math.random() * 0.2, 0.35 + Math.random() * 0.1);
+
+            const angle = Math.random() * Math.PI * 2;
+            const radius = 1 + Math.random() * 6;
+            blade.position.set(
+                Math.cos(angle) * radius,
+                0.07,
+                Math.sin(angle) * radius
+            );
+            blade.rotation.y = Math.random() * Math.PI;
+            blade.rotation.x = -0.1;
+
+            blade.userData = {
+                swayPhase: Math.random() * Math.PI * 2,
+                swaySpeed: 1 + Math.random() * 0.5,
+            };
+
+            grassBlades.push(blade);
+            gladeWorld.add(blade);
+        }
+
+        // Trees
+        function createTree(x, z, height, canopySize) {
+            const treeGroup = new THREE.Group();
+
+            // Trunk
+            const trunkGeo = new THREE.CylinderGeometry(0.08, 0.12, height, 8);
+            const trunkMat = new THREE.MeshStandardMaterial({
+                color: 0x5c4033,
+                roughness: 0.9,
+            });
+            const trunk = new THREE.Mesh(trunkGeo, trunkMat);
+            trunk.position.y = height / 2;
+            trunk.castShadow = true;
+            treeGroup.add(trunk);
+
+            // Canopy - multiple overlapping spheres for organic look
+            const canopyMat = new THREE.MeshStandardMaterial({
+                color: 0x2d5a27,
+                roughness: 0.8,
+            });
+
+            for (let i = 0; i < 5; i++) {
+                const leafCluster = new THREE.Mesh(
+                    new THREE.IcosahedronGeometry(canopySize * (0.6 + Math.random() * 0.4), 1),
+                    canopyMat.clone()
+                );
+                leafCluster.material.color.setHSL(0.28 + Math.random() * 0.05, 0.5, 0.25 + Math.random() * 0.1);
+                leafCluster.position.set(
+                    (Math.random() - 0.5) * canopySize * 0.8,
+                    height + (Math.random() - 0.3) * canopySize * 0.5,
+                    (Math.random() - 0.5) * canopySize * 0.8
+                );
+                leafCluster.castShadow = true;
+                treeGroup.add(leafCluster);
+            }
+
+            treeGroup.position.set(x, 0, z);
+            return treeGroup;
+        }
+
+        gladeWorld.add(createTree(-4, -3, 2.5, 1.2));
+        gladeWorld.add(createTree(-5, 1, 3, 1.5));
+        gladeWorld.add(createTree(4.5, -2, 2.8, 1.3));
+        gladeWorld.add(createTree(5, 2, 2.2, 1.0));
+        gladeWorld.add(createTree(-3, 4, 2.0, 0.9));
+        gladeWorld.add(createTree(3, 4.5, 2.6, 1.1));
+
+        // Flowers
+        function createFlower(x, z, color, petalCount) {
+            const flowerGroup = new THREE.Group();
+
+            // Stem
+            const stem = new THREE.Mesh(
+                new THREE.CylinderGeometry(0.01, 0.015, 0.3, 6),
+                new THREE.MeshStandardMaterial({ color: 0x3a7d32 })
+            );
+            stem.position.y = 0.15;
+            flowerGroup.add(stem);
+
+            // Flower center
+            const center = new THREE.Mesh(
+                new THREE.SphereGeometry(0.04, 8, 8),
+                new THREE.MeshStandardMaterial({ color: 0xffdd00 })
+            );
+            center.position.y = 0.32;
+            flowerGroup.add(center);
+
+            // Petals
+            const petalMat = new THREE.MeshStandardMaterial({
+                color: color,
+                roughness: 0.6,
+                side: THREE.DoubleSide,
+            });
+
+            for (let i = 0; i < petalCount; i++) {
+                const petal = new THREE.Mesh(
+                    new THREE.SphereGeometry(0.05, 6, 6),
+                    petalMat
+                );
+                petal.scale.set(0.5, 1, 0.3);
+                const angle = (i / petalCount) * Math.PI * 2;
+                petal.position.set(
+                    Math.cos(angle) * 0.06,
+                    0.32,
+                    Math.sin(angle) * 0.06
+                );
+                petal.rotation.z = Math.PI / 2;
+                petal.rotation.y = angle;
+                flowerGroup.add(petal);
+            }
+
+            flowerGroup.position.set(x, 0, z);
+            flowerGroup.userData = {
+                swayPhase: Math.random() * Math.PI * 2,
+            };
+            return flowerGroup;
+        }
+
+        const flowers = [];
+        const flowerColors = [0xff6b8a, 0xffffff, 0x9b59b6, 0xffeb3b, 0xff9800, 0x3498db];
+
+        for (let i = 0; i < 40; i++) {
+            const angle = Math.random() * Math.PI * 2;
+            const radius = 1.5 + Math.random() * 5;
+            const flower = createFlower(
+                Math.cos(angle) * radius,
+                Math.sin(angle) * radius,
+                flowerColors[Math.floor(Math.random() * flowerColors.length)],
+                5 + Math.floor(Math.random() * 4)
+            );
+            flowers.push(flower);
+            gladeWorld.add(flower);
+        }
+
+        // Mushrooms
+        function createMushroom(x, z, size) {
+            const mushroomGroup = new THREE.Group();
+
+            const stem = new THREE.Mesh(
+                new THREE.CylinderGeometry(size * 0.15, size * 0.2, size * 0.4, 8),
+                new THREE.MeshStandardMaterial({ color: 0xf5f5dc })
+            );
+            stem.position.y = size * 0.2;
+            mushroomGroup.add(stem);
+
+            const cap = new THREE.Mesh(
+                new THREE.SphereGeometry(size * 0.4, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2),
+                new THREE.MeshStandardMaterial({ color: 0xcc3333 })
+            );
+            cap.position.y = size * 0.4;
+            mushroomGroup.add(cap);
+
+            // Spots
+            for (let i = 0; i < 5; i++) {
+                const spot = new THREE.Mesh(
+                    new THREE.CircleGeometry(size * 0.06, 8),
+                    new THREE.MeshBasicMaterial({ color: 0xffffff })
+                );
+                const theta = Math.random() * Math.PI * 0.4;
+                const phi = Math.random() * Math.PI * 2;
+                spot.position.set(
+                    Math.sin(theta) * Math.cos(phi) * size * 0.38,
+                    size * 0.4 + Math.cos(theta) * size * 0.38,
+                    Math.sin(theta) * Math.sin(phi) * size * 0.38
+                );
+                spot.lookAt(mushroomGroup.position.x, size * 0.4, mushroomGroup.position.z);
+                mushroomGroup.add(spot);
+            }
+
+            mushroomGroup.position.set(x, 0, z);
+            return mushroomGroup;
+        }
+
+        for (let i = 0; i < 8; i++) {
+            const angle = Math.random() * Math.PI * 2;
+            const radius = 2 + Math.random() * 4;
+            gladeWorld.add(createMushroom(
+                Math.cos(angle) * radius,
+                Math.sin(angle) * radius,
+                0.15 + Math.random() * 0.15
+            ));
+        }
+
+        // Butterflies
+        const butterflies = [];
+        function createButterfly() {
+            const butterfly = new THREE.Group();
+
+            const bodyMat = new THREE.MeshStandardMaterial({ color: 0x222222 });
+            const body = new THREE.Mesh(
+                new THREE.CapsuleGeometry(0.015, 0.06, 4, 6),
+                bodyMat
+            );
+            body.rotation.x = Math.PI / 2;
+            butterfly.add(body);
+
+            const wingColor = new THREE.Color().setHSL(Math.random(), 0.8, 0.5);
+            const wingMat = new THREE.MeshStandardMaterial({
+                color: wingColor,
+                roughness: 0.5,
+                side: THREE.DoubleSide,
+                transparent: true,
+                opacity: 0.9,
+            });
+
+            // Wings - simple triangular shapes
+            const wingShape = new THREE.Shape();
+            wingShape.moveTo(0, 0);
+            wingShape.lineTo(0.08, 0.04);
+            wingShape.lineTo(0.06, 0.1);
+            wingShape.lineTo(0, 0.06);
+
+            const wingGeo = new THREE.ShapeGeometry(wingShape);
+
+            const leftWing = new THREE.Mesh(wingGeo, wingMat);
+            leftWing.position.x = -0.01;
+            leftWing.rotation.y = -0.3;
+            butterfly.add(leftWing);
+
+            const rightWing = new THREE.Mesh(wingGeo, wingMat.clone());
+            rightWing.position.x = 0.01;
+            rightWing.rotation.y = Math.PI + 0.3;
+            butterfly.add(rightWing);
+
+            butterfly.userData = {
+                leftWing,
+                rightWing,
+                flapSpeed: 8 + Math.random() * 4,
+                pathRadius: 1 + Math.random() * 3,
+                pathSpeed: 0.3 + Math.random() * 0.3,
+                pathPhase: Math.random() * Math.PI * 2,
+                baseY: 1 + Math.random() * 2,
+                bobSpeed: 1 + Math.random(),
+                bobPhase: Math.random() * Math.PI * 2,
+            };
+
+            return butterfly;
+        }
+
+        for (let i = 0; i < 15; i++) {
+            const butterfly = createButterfly();
+            butterfly.position.set(
+                (Math.random() - 0.5) * 6,
+                1 + Math.random() * 2,
+                (Math.random() - 0.5) * 6
+            );
+            butterflies.push(butterfly);
+            gladeWorld.add(butterfly);
+        }
+
+        // Bees
+        const bees = [];
+        function createBee() {
+            const bee = new THREE.Group();
+
+            // Body
+            const bodyMat = new THREE.MeshStandardMaterial({ color: 0xffc107 });
+            const body = new THREE.Mesh(
+                new THREE.CapsuleGeometry(0.025, 0.04, 4, 6),
+                bodyMat
+            );
+            body.rotation.x = Math.PI / 2;
+            bee.add(body);
+
+            // Stripes
+            const stripeMat = new THREE.MeshStandardMaterial({ color: 0x222222 });
+            for (let i = 0; i < 2; i++) {
+                const stripe = new THREE.Mesh(
+                    new THREE.TorusGeometry(0.026, 0.008, 6, 12),
+                    stripeMat
+                );
+                stripe.position.z = -0.015 + i * 0.03;
+                stripe.rotation.x = Math.PI / 2;
+                bee.add(stripe);
+            }
+
+            // Wings
+            const wingMat = new THREE.MeshStandardMaterial({
+                color: 0xffffff,
+                transparent: true,
+                opacity: 0.5,
+                side: THREE.DoubleSide,
+            });
+            const wingGeo = new THREE.CircleGeometry(0.03, 8);
+
+            const leftWing = new THREE.Mesh(wingGeo, wingMat);
+            leftWing.position.set(-0.02, 0.02, 0);
+            leftWing.rotation.z = 0.3;
+            bee.add(leftWing);
+
+            const rightWing = new THREE.Mesh(wingGeo, wingMat);
+            rightWing.position.set(0.02, 0.02, 0);
+            rightWing.rotation.z = -0.3;
+            bee.add(rightWing);
+
+            bee.userData = {
+                leftWing,
+                rightWing,
+                targetFlower: null,
+                speed: 1 + Math.random() * 0.5,
+                hoverTime: 0,
+                state: 'flying',
+            };
+
+            return bee;
+        }
+
+        for (let i = 0; i < 8; i++) {
+            const bee = createBee();
+            bee.position.set(
+                (Math.random() - 0.5) * 4,
+                0.5 + Math.random() * 1.5,
+                (Math.random() - 0.5) * 4
+            );
+            bees.push(bee);
+            gladeWorld.add(bee);
+        }
+
+        // Small rabbits/critters
+        function createRabbit(x, z) {
+            const rabbit = new THREE.Group();
+
+            const furMat = new THREE.MeshStandardMaterial({
+                color: 0xc9b896,
+                roughness: 0.9,
+            });
+
+            // Body
+            const body = new THREE.Mesh(
+                new THREE.SphereGeometry(0.12, 10, 8),
+                furMat
+            );
+            body.scale.set(1, 0.8, 1.3);
+            body.position.y = 0.1;
+            rabbit.add(body);
+
+            // Head
+            const head = new THREE.Mesh(
+                new THREE.SphereGeometry(0.08, 8, 6),
+                furMat
+            );
+            head.position.set(0, 0.15, 0.12);
+            rabbit.add(head);
+
+            // Ears
+            const earMat = furMat.clone();
+            earMat.color.setHex(0xffcccc);
+            for (let i = 0; i < 2; i++) {
+                const ear = new THREE.Mesh(
+                    new THREE.CapsuleGeometry(0.02, 0.08, 4, 6),
+                    earMat
+                );
+                ear.position.set(i === 0 ? -0.03 : 0.03, 0.28, 0.1);
+                ear.rotation.x = -0.2;
+                rabbit.add(ear);
+            }
+
+            // Tail
+            const tail = new THREE.Mesh(
+                new THREE.SphereGeometry(0.04, 6, 6),
+                new THREE.MeshStandardMaterial({ color: 0xffffff })
+            );
+            tail.position.set(0, 0.1, -0.15);
+            rabbit.add(tail);
+
+            rabbit.position.set(x, 0, z);
+            rabbit.userData = {
+                hopPhase: Math.random() * Math.PI * 2,
+                hopSpeed: 0.5 + Math.random() * 0.3,
+            };
+            return rabbit;
+        }
+
+        const rabbits = [];
+        for (let i = 0; i < 4; i++) {
+            const angle = Math.random() * Math.PI * 2;
+            const radius = 2 + Math.random() * 3;
+            const rabbit = createRabbit(
+                Math.cos(angle) * radius,
+                Math.sin(angle) * radius
+            );
+            rabbit.rotation.y = Math.random() * Math.PI * 2;
+            rabbits.push(rabbit);
+            gladeWorld.add(rabbit);
+        }
+
+        // Pond
+        const pondMaterial = new THREE.MeshStandardMaterial({
+            color: 0x4a90a4,
+            roughness: 0.1,
+            metalness: 0.3,
+            transparent: true,
+            opacity: 0.8,
+        });
+        const pond = new THREE.Mesh(
+            new THREE.CircleGeometry(1, 24),
+            pondMaterial
+        );
+        pond.rotation.x = -Math.PI / 2;
+        pond.position.set(2, 0.01, -2);
+        gladeWorld.add(pond);
+
+        // Fish in pond
+        const fish = [];
+        function createFish() {
+            const fishGroup = new THREE.Group();
+            const fishMat = new THREE.MeshStandardMaterial({
+                color: new THREE.Color().setHSL(0.05 + Math.random() * 0.1, 0.8, 0.5),
+            });
+
+            const body = new THREE.Mesh(
+                new THREE.ConeGeometry(0.03, 0.12, 6),
+                fishMat
+            );
+            body.rotation.z = Math.PI / 2;
+            fishGroup.add(body);
+
+            const tail = new THREE.Mesh(
+                new THREE.ConeGeometry(0.025, 0.04, 4),
+                fishMat
+            );
+            tail.rotation.z = -Math.PI / 2;
+            tail.position.x = -0.07;
+            fishGroup.add(tail);
+
+            fishGroup.userData = {
+                angle: Math.random() * Math.PI * 2,
+                radius: 0.3 + Math.random() * 0.5,
+                speed: 0.5 + Math.random() * 0.5,
+            };
+
+            return fishGroup;
+        }
+
+        for (let i = 0; i < 5; i++) {
+            const f = createFish();
+            f.position.set(2, 0.02, -2);
+            fish.push(f);
+            gladeWorld.add(f);
+        }
+
+        gladeWorld.visible = false;
+        scene.add(gladeWorld);
+
+        // World backgrounds
+        const bambooBackground = 0x87ceeb;
+        const lavaBackground = 0x1a0505;
+        const driftBackground = 0x4a3f35;
+        const voltageBackground = 0x0a0a0f;
+        const hearthBackground = 0x2a1810;
+        const simmerBackground = 0x331111;
+        const gladeBackground = 0x87ceeb;
+
+        // World switching function
+        function switchWorld(worldName) {
+            currentWorld = worldName;
+
+            // Hide all worlds first
+            bambooWorld.visible = false;
+            lavaWorld.visible = false;
+            driftWorld.visible = false;
+            voltageWorld.visible = false;
+            hearthWorld.visible = false;
+            simmerWorld.visible = false;
+            gladeWorld.visible = false;
+            amberLight.visible = false;
+            overheadLight.visible = false;
+            centralGlow.visible = false;
+            simmerLight.visible = false;
+
+            if (worldName === 'bamboo') {
+                bambooWorld.visible = true;
+                scene.background = new THREE.Color(bambooBackground);
+                ambientLight.color.setHex(0xffffff);
+                ambientLight.intensity = 0.4;
+                keyLight.color.setHex(0xfff5e6);
+                keyLight.intensity = 1.5;
+            } else if (worldName === 'lava') {
+                lavaWorld.visible = true;
+                scene.background = new THREE.Color(lavaBackground);
+                ambientLight.color.setHex(0xff4422);
+                ambientLight.intensity = 0.3;
+                keyLight.color.setHex(0xfff5e6);
+                keyLight.intensity = 1.5;
+            } else if (worldName === 'drift') {
+                driftWorld.visible = true;
+                amberLight.visible = true;
+                scene.background = new THREE.Color(driftBackground);
+                ambientLight.color.setHex(0xddc4a0);
+                ambientLight.intensity = 0.5;
+                keyLight.color.setHex(0xffcc88);
+                keyLight.intensity = 0.8;
+            } else if (worldName === 'voltage') {
+                voltageWorld.visible = true;
+                overheadLight.visible = true;
+                scene.background = new THREE.Color(voltageBackground);
+                ambientLight.color.setHex(0x8888aa);
+                ambientLight.intensity = 0.2;
+                keyLight.color.setHex(0xffffff);
+                keyLight.intensity = 1.2;
+            } else if (worldName === 'hearth') {
+                hearthWorld.visible = true;
+                centralGlow.visible = true;
+                scene.background = new THREE.Color(hearthBackground);
+                ambientLight.color.setHex(0xffddbb);
+                ambientLight.intensity = 0.3;
+                keyLight.color.setHex(0xffcc99);
+                keyLight.intensity = 0.6;
+            } else if (worldName === 'simmer') {
+                simmerWorld.visible = true;
+                simmerLight.visible = true;
+                scene.background = new THREE.Color(simmerBackground);
+                ambientLight.color.setHex(0xff6644);
+                ambientLight.intensity = 0.3;
+                keyLight.color.setHex(0xffaa88);
+                keyLight.intensity = 1.0;
+            } else if (worldName === 'glade') {
+                gladeWorld.visible = true;
+                scene.background = new THREE.Color(gladeBackground);
+                // Bright, natural daylight
+                ambientLight.color.setHex(0xffffff);
+                ambientLight.intensity = 0.5;
+                keyLight.color.setHex(0xfffaf0);
+                keyLight.intensity = 1.3;
+            }
+        }
+
+        // Animate lava world elements
+        function animateLavaWorld(time) {
+            if (currentWorld !== 'lava') return;
+
+            // Animate embers floating up
+            embers.forEach(ember => {
+                ember.position.y += ember.userData.speed * 0.01;
+                ember.position.x += Math.sin(time * 2 + ember.userData.drift * 10) * 0.002;
+
+                // Reset when too high
+                if (ember.position.y > 6) {
+                    ember.position.y = 0;
+                    ember.position.x = (Math.random() - 0.5) * 6;
+                    ember.position.z = (Math.random() - 0.5) * 6;
+                }
+            });
+
+            // Pulse lava glow
+            const pulse = Math.sin(time * 2) * 0.5 + 1.5;
+            lavaMaterial.emissiveIntensity = pulse;
+        }
+
+        // Animate amber drift world - unhurried, gentle movements
+        function animateDriftWorld(time) {
+            if (currentWorld !== 'drift') return;
+
+            // Dust motes - slow, meandering drift
+            dustMotes.forEach(dust => {
+                const d = dust.userData;
+                // Very slow vertical drift
+                dust.position.y = d.baseY + Math.sin(time * d.driftSpeed + d.driftPhase) * 0.3;
+                // Gentle horizontal sway
+                dust.position.x += Math.sin(time * d.swaySpeed + d.driftPhase) * 0.001 * d.swayAmount;
+                dust.position.z += Math.cos(time * d.swaySpeed * 0.7 + d.driftPhase) * 0.001 * d.swayAmount;
+
+                // Soft boundaries - gently redirect if wandering too far
+                if (Math.abs(dust.position.x) > 5) dust.position.x *= 0.99;
+                if (Math.abs(dust.position.z) > 5) dust.position.z *= 0.99;
+            });
+
+            // Floating stones - low gravity, contemplative bobbing
+            floatingStones.forEach(stone => {
+                const s = stone.userData;
+                // Slow, gentle float
+                stone.position.y = s.baseY + Math.sin(time * s.floatSpeed + s.floatPhase) * s.floatAmount;
+                // Very slow rotation - like turning an idea over
+                stone.rotation.y += s.rotateSpeed * 0.005;
+                stone.rotation.x += s.rotateSpeed * 0.002;
+            });
+
+            // Subtle light shaft breathing
+            lightShaft.material.opacity = 0.04 + Math.sin(time * 0.3) * 0.02;
+        }
+
+        // Animate glade world - nature, flora and fauna
+        function animateGladeWorld(time, deltaTime) {
+            if (currentWorld !== 'glade') return;
+
+            // Grass swaying
+            grassBlades.forEach(blade => {
+                const b = blade.userData;
+                blade.rotation.z = Math.sin(time * b.swaySpeed + b.swayPhase) * 0.15;
+            });
+
+            // Flowers swaying gently
+            flowers.forEach(flower => {
+                flower.rotation.z = Math.sin(time * 0.8 + flower.userData.swayPhase) * 0.05;
+            });
+
+            // Butterflies - fluttering around
+            butterflies.forEach(butterfly => {
+                const b = butterfly.userData;
+
+                // Wing flapping
+                const flap = Math.sin(time * b.flapSpeed) * 0.8;
+                b.leftWing.rotation.y = -0.3 - flap;
+                b.rightWing.rotation.y = Math.PI + 0.3 + flap;
+
+                // Circular path with vertical bobbing
+                const pathAngle = time * b.pathSpeed + b.pathPhase;
+                butterfly.position.x = Math.cos(pathAngle) * b.pathRadius;
+                butterfly.position.z = Math.sin(pathAngle) * b.pathRadius;
+                butterfly.position.y = b.baseY + Math.sin(time * b.bobSpeed + b.bobPhase) * 0.3;
+
+                // Face direction of travel
+                butterfly.rotation.y = -pathAngle + Math.PI / 2;
+            });
+
+            // Bees - buzzing around, visiting flowers
+            bees.forEach(bee => {
+                const b = bee.userData;
+
+                // Wing buzzing
+                const buzz = Math.sin(time * 30) * 0.4;
+                b.leftWing.rotation.z = 0.3 + buzz;
+                b.rightWing.rotation.z = -0.3 - buzz;
+
+                if (b.state === 'flying') {
+                    // Pick a flower to visit
+                    if (!b.targetFlower && flowers.length > 0) {
+                        b.targetFlower = flowers[Math.floor(Math.random() * flowers.length)];
+                    }
+
+                    if (b.targetFlower) {
+                        const target = b.targetFlower.position;
+                        const dx = target.x - bee.position.x;
+                        const dy = (target.y + 0.4) - bee.position.y;
+                        const dz = target.z - bee.position.z;
+                        const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+
+                        if (dist > 0.2) {
+                            bee.position.x += (dx / dist) * b.speed * deltaTime;
+                            bee.position.y += (dy / dist) * b.speed * deltaTime;
+                            bee.position.z += (dz / dist) * b.speed * deltaTime;
+                            bee.lookAt(target.x, target.y + 0.4, target.z);
+                        } else {
+                            b.state = 'hovering';
+                            b.hoverTime = 1 + Math.random() * 2;
+                        }
+                    }
+                } else if (b.state === 'hovering') {
+                    // Hover near flower
+                    bee.position.y += Math.sin(time * 5) * 0.002;
+                    b.hoverTime -= deltaTime;
+                    if (b.hoverTime <= 0) {
+                        b.state = 'flying';
+                        b.targetFlower = null;
+                    }
+                }
+            });
+
+            // Rabbits - occasional hopping
+            rabbits.forEach(rabbit => {
+                const r = rabbit.userData;
+                const hop = Math.sin(time * r.hopSpeed + r.hopPhase);
+                if (hop > 0.9) {
+                    rabbit.position.y = (hop - 0.9) * 0.5;
+                } else {
+                    rabbit.position.y = 0;
+                }
+            });
+
+            // Fish swimming in circles
+            fish.forEach(f => {
+                const fd = f.userData;
+                fd.angle += fd.speed * deltaTime;
+                f.position.x = 2 + Math.cos(fd.angle) * fd.radius;
+                f.position.z = -2 + Math.sin(fd.angle) * fd.radius;
+                f.rotation.y = -fd.angle + Math.PI / 2;
+            });
+
+            // Pond ripples (subtle scale pulse)
+            pond.scale.x = 1 + Math.sin(time * 0.5) * 0.02;
+            pond.scale.y = 1 + Math.sin(time * 0.5) * 0.02;
+        }
+
+        // Animate simmer world - frustrated, things won't behave
+        function animateSimmerWorld(time, deltaTime) {
+            if (currentWorld !== 'simmer') return;
+
+            // Scattered objects - restless, won't stay put
+            scatteredObjects.forEach(obj => {
+                const o = obj.userData;
+
+                // Random scatter impulses - like a kid just kicked them
+                o.scatterTimer -= deltaTime;
+                if (o.scatterTimer <= 0) {
+                    o.velocity.x += (Math.random() - 0.5) * o.restlessness * 0.5;
+                    o.velocity.z += (Math.random() - 0.5) * o.restlessness * 0.5;
+                    o.velocity.y += Math.random() * 0.2;
+                    o.angularVel.x += (Math.random() - 0.5) * 3;
+                    o.angularVel.y += (Math.random() - 0.5) * 3;
+                    o.scatterTimer = 1 + Math.random() * 4;
+                }
+
+                // Apply velocity
+                obj.position.add(o.velocity.clone().multiplyScalar(deltaTime * 2));
+
+                // Gravity
+                if (obj.position.y > 0.15) {
+                    o.velocity.y -= 2 * deltaTime;
+                } else {
+                    obj.position.y = 0.15;
+                    o.velocity.y = 0;
+                    // Friction
+                    o.velocity.x *= 0.95;
+                    o.velocity.z *= 0.95;
+                }
+
+                // Bounce off boundaries
+                if (Math.abs(obj.position.x) > 4) {
+                    o.velocity.x *= -0.7;
+                    obj.position.x = Math.sign(obj.position.x) * 4;
+                }
+                if (Math.abs(obj.position.z) > 4) {
+                    o.velocity.z *= -0.7;
+                    obj.position.z = Math.sign(obj.position.z) * 4;
+                }
+
+                // Spin
+                obj.rotation.x += o.angularVel.x * deltaTime;
+                obj.rotation.y += o.angularVel.y * deltaTime;
+                obj.rotation.z += o.angularVel.z * deltaTime;
+
+                // Angular friction
+                o.angularVel.multiplyScalar(0.99);
+            });
+
+            // Heat waves - pulses of frustration
+            heatWaves.forEach(wave => {
+                if (!wave.visible && Math.random() < 0.02) {
+                    wave.visible = true;
+                    wave.position.x = (Math.random() - 0.5) * 4;
+                    wave.position.z = (Math.random() - 0.5) * 4;
+                    wave.userData.scale = 0.5;
+                    wave.userData.life = 1;
+                    wave.scale.set(0.5, 0.5, 0.5);
+                }
+
+                if (wave.visible) {
+                    wave.userData.scale += deltaTime * 3;
+                    wave.userData.life -= deltaTime * 1.5;
+                    wave.scale.set(wave.userData.scale, wave.userData.scale, 1);
+                    wave.material.opacity = wave.userData.life * 0.2;
+
+                    if (wave.userData.life <= 0) {
+                        wave.visible = false;
+                    }
+                }
+            });
+
+            // Pressure core - pulsing, building
+            const pressure = Math.sin(time * 4) * 0.2 + 1;
+            pressureCore.scale.set(pressure, pressure, pressure);
+            pressureCore.material.emissiveIntensity = 0.3 + Math.sin(time * 6) * 0.3;
+            pressureCore.rotation.y += deltaTime * 2;
+            pressureCore.rotation.x = Math.sin(time * 3) * 0.2;
+
+            // Steam particles - rising frustration
+            steamParticles.forEach(steam => {
+                if (!steam.visible && Math.random() < 0.1) {
+                    steam.visible = true;
+                    steam.position.set(
+                        (Math.random() - 0.5) * 0.8,
+                        2.3,
+                        (Math.random() - 0.5) * 0.8
+                    );
+                    steam.material.opacity = 0.5;
+                }
+
+                if (steam.visible) {
+                    steam.position.y += steam.userData.speed * deltaTime;
+                    steam.position.x += steam.userData.drift * deltaTime;
+                    steam.material.opacity -= deltaTime * 0.3;
+
+                    if (steam.position.y > 5 || steam.material.opacity <= 0) {
+                        steam.visible = false;
+                    }
+                }
+            });
+
+            // Light flickers with anger
+            simmerLight.intensity = 1.5 + Math.sin(time * 8) * 0.3;
+        }
+
+        // Animate hearth world - cozy, warm, gentle breathing
+        function animateHearthWorld(time) {
+            if (currentWorld !== 'hearth') return;
+
+            // Glowing orbs - gentle pulse like candlelight
+            glowOrbs.forEach(orb => {
+                const o = orb.userData;
+                const pulse = Math.sin(time * o.pulseSpeed + o.pulsePhase) * 0.15 + 0.85;
+                orb.material.opacity = o.baseOpacity * pulse;
+                orb.scale.setScalar(1 + (pulse - 0.85) * 0.3);
+            });
+
+            // Family cluster - gentle breathing together
+            const breathe = Math.sin(time * 0.8) * 0.02;
+            familyGroup.position.y = breathe;
+            familyGroup.rotation.y = Math.sin(time * 0.2) * 0.03;
+
+            // Kids snuggle closer occasionally
+            kid1.position.z = 0.4 + Math.sin(time * 0.5) * 0.03;
+            kid2.position.x = -0.25 + Math.sin(time * 0.4) * 0.02;
+
+            // Motes - very slow, peaceful drift
+            hearthMotes.forEach(mote => {
+                const m = mote.userData;
+                mote.position.y = m.baseY + Math.sin(time * m.floatSpeed + m.floatPhase) * 0.2;
+            });
+
+            // Central glow - warm fireplace flicker
+            const flicker = Math.sin(time * 3) * 0.1 + Math.sin(time * 7) * 0.05 + 1;
+            centralGlow.intensity = 1.3 * flicker;
+        }
+
+        // Animate voltage world - restless, buzzing, overcaffeinated
+        function animateVoltageWorld(time, deltaTime) {
+            if (currentWorld !== 'voltage') return;
+
+            // Spinners - fast, uneven, jittery
+            spinners.forEach(spinner => {
+                const s = spinner.userData;
+
+                // Base spinning
+                spinner.rotation.x += s.spinSpeedX * deltaTime;
+                spinner.rotation.y += s.spinSpeedY * deltaTime;
+                spinner.rotation.z += s.spinSpeedZ * deltaTime;
+
+                // Constant jitter - can't sit still
+                spinner.position.x = s.basePos.x + (Math.random() - 0.5) * s.jitterAmount;
+                spinner.position.y = s.basePos.y + (Math.random() - 0.5) * s.jitterAmount;
+                spinner.position.z = s.basePos.z + (Math.random() - 0.5) * s.jitterAmount;
+
+                // Sudden acceleration bursts
+                s.burstTimer -= deltaTime;
+                if (s.burstTimer <= 0) {
+                    s.spinSpeedX *= 1.5 + Math.random();
+                    s.spinSpeedY *= 1.5 + Math.random();
+                    s.burstTimer = s.burstCooldown;
+                    // Decay back
+                    setTimeout(() => {
+                        s.spinSpeedX *= 0.6;
+                        s.spinSpeedY *= 0.6;
+                    }, 200);
+                }
+            });
+
+            // Sparks - erratic, snapping
+            sparks.forEach(spark => {
+                const s = spark.userData;
+
+                if (!spark.visible && Math.random() < 0.05) {
+                    // Spawn new spark
+                    spark.visible = true;
+                    spark.position.set(
+                        (Math.random() - 0.5) * 8,
+                        Math.random() * 4 + 0.5,
+                        (Math.random() - 0.5) * 8
+                    );
+                    s.velocity.set(
+                        (Math.random() - 0.5) * 0.4,
+                        (Math.random() - 0.5) * 0.4,
+                        (Math.random() - 0.5) * 0.4
+                    );
+                    s.life = 0;
+                    spark.material.opacity = 1;
+                }
+
+                if (spark.visible) {
+                    s.life += deltaTime;
+                    spark.position.add(s.velocity);
+                    s.velocity.multiplyScalar(0.95);
+
+                    // Erratic direction changes
+                    if (Math.random() < 0.1) {
+                        s.velocity.x += (Math.random() - 0.5) * 0.2;
+                        s.velocity.y += (Math.random() - 0.5) * 0.2;
+                        s.velocity.z += (Math.random() - 0.5) * 0.2;
+                    }
+
+                    spark.material.opacity = 1 - (s.life / s.maxLife);
+
+                    if (s.life >= s.maxLife) {
+                        spark.visible = false;
+                    }
+                }
+            });
+
+            // Lightning bolts - brief flashes
+            bolts.forEach(bolt => {
+                if (!bolt.visible && Math.random() < 0.008) {
+                    // Regenerate bolt path
+                    const points = [];
+                    let y = 5;
+                    let x = (Math.random() - 0.5) * 6;
+                    let z = (Math.random() - 0.5) * 6;
+
+                    while (y > 0) {
+                        points.push(new THREE.Vector3(x, y, z));
+                        y -= 0.3 + Math.random() * 0.4;
+                        x += (Math.random() - 0.5) * 0.8;
+                        z += (Math.random() - 0.5) * 0.8;
+                    }
+
+                    bolt.geometry.setFromPoints(points);
+                    bolt.visible = true;
+                    bolt.userData.life = 0.05 + Math.random() * 0.08;
+                    bolt.material.opacity = 1;
+                }
+
+                if (bolt.visible) {
+                    bolt.userData.life -= deltaTime;
+                    bolt.material.opacity = bolt.userData.life * 10;
+                    if (bolt.userData.life <= 0) {
+                        bolt.visible = false;
+                    }
+                }
+            });
+
+            // Screens - flickering, glitching
+            screens.forEach(screen => {
+                const s = screen.userData;
+
+                // Base flicker
+                const flicker = Math.sin(time * s.flickerSpeed) * 0.2 + 0.8;
+                screen.material.opacity = s.baseOpacity * flicker;
+
+                // Random glitches
+                if (Math.random() < s.glitchChance) {
+                    screen.material.color.setHSL(Math.random(), 0.8, 0.5);
+                    screen.material.opacity = 1;
+                } else {
+                    screen.material.color.setHSL(s.hue, 0.7, 0.5);
+                }
+
+                // Slight position jitter
+                screen.position.x += (Math.random() - 0.5) * 0.005;
+            });
+
+            // Overhead light - that humming flicker
+            const hum = Math.sin(time * 120) * 0.1 + Math.sin(time * 60) * 0.05;
+            overheadLight.intensity = 2 + hum + (Math.random() < 0.02 ? -0.5 : 0);
+            fixture.material.color.setHSL(0.15, 0.1, 0.9 + hum * 0.5);
+        }
 
         // ============================================
         // CHAOTIC BIRDS
@@ -1839,6 +3900,34 @@
         }
 
         // ============================================
+        // SSR POST-PROCESSING SETUP
+        // ============================================
+        const composer = new EffectComposer(renderer);
+        const renderPass = new RenderPass(scene, camera);
+        composer.addPass(renderPass);
+
+        // Collect selects (reflective objects) for SSR
+        const ssrSelects = [body];
+
+        const ssrPass = new SSRPass({
+            renderer,
+            scene,
+            camera,
+            width: window.innerWidth,
+            height: window.innerHeight,
+            groundReflector: null,
+            selects: ssrSelects,
+        });
+        ssrPass.thickness = 0.02;
+        ssrPass.infiniteThick = false;
+        ssrPass.maxDistance = 0.1;
+        ssrPass.opacity = 1;
+        composer.addPass(ssrPass);
+
+        const outputPass = new OutputPass();
+        composer.addPass(outputPass);
+
+        // ============================================
         // ANIMATION
         // ============================================
         let time = 0;
@@ -1906,6 +3995,24 @@
             // Animate chaotic birds
             animateBirds(time, deltaTime);
 
+            // Animate lava world
+            animateLavaWorld(time);
+
+            // Animate amber drift world
+            animateDriftWorld(time);
+
+            // Animate voltage world
+            animateVoltageWorld(time, deltaTime);
+
+            // Animate hearth world
+            animateHearthWorld(time);
+
+            // Animate simmer world
+            animateSimmerWorld(time, deltaTime);
+
+            // Animate glade world
+            animateGladeWorld(time, deltaTime);
+
             // Process bird collisions
             processBirdCollisions();
 
@@ -1914,6 +4021,26 @@
 
             // Apply float physics
             applyFloatPhysics(deltaTime);
+
+            // Update aura shader and sync positions
+            if (auraEnabled) {
+                auraMaterial.uniforms.time.value = time;
+                // Sync aura meshes with their source meshes
+                auraMeshes.forEach(({ aura, source }) => {
+                    aura.position.copy(source.position);
+                    aura.rotation.copy(source.rotation);
+                    aura.scale.copy(source.scale);
+                });
+            }
+
+            // Animate camera creature
+            if (cameraCreatureEnabled) {
+                // Gentle bobbing and arm waving
+                cameraCreature.position.y = -0.8 + Math.sin(time * 2) * 0.05;
+                cameraCreature.rotation.z = Math.sin(time * 1.5) * 0.1;
+                creatureLeftArm.rotation.z = 0.5 + Math.sin(time * 3) * 0.3;
+                creatureRightArm.rotation.z = -0.5 + Math.sin(time * 3 + Math.PI) * 0.3;
+            }
 
             // Continuous material addition while holding mouse
             processContinuousAddMaterial();
@@ -1925,7 +4052,7 @@
             }
 
             // Update CubeCamera for reflections only in realtime mode
-            if (useRealtimeReflections) {
+            if (reflectionMode === 'realtime') {
                 // Position cube camera at character's body location for accurate reflections
                 if (currentCharacter.body) {
                     currentCharacter.body.getWorldPosition(cubeCamera.position);
@@ -1944,31 +4071,49 @@
             }
 
             controls.update();
-            renderer.render(scene, camera);
+
+            // Render with SSR composer or standard renderer
+            if (reflectionMode === 'ssr') {
+                composer.render();
+            } else {
+                renderer.render(scene, camera);
+            }
         }
 
         animate();
 
         // Reflection mode toggle
         document.getElementById('reflectionMode').addEventListener('change', (e) => {
-            useRealtimeReflections = (e.target.value === 'realtime');
+            reflectionMode = e.target.value;
 
-            if (useRealtimeReflections) {
+            if (reflectionMode === 'realtime') {
                 mirrorMaterial.envMap = cubeRenderTarget.texture;
                 mirrorMaterial.envMapIntensity = 1.5;
                 orbMirrorMaterial.envMap = orbCubeRenderTarget.texture;
                 orbMirrorMaterial.envMapIntensity = 1.5;
                 bubbleMaterial.envMap = cubeRenderTarget.texture;
-            } else {
+            } else if (reflectionMode === 'gradient') {
                 mirrorMaterial.envMap = gradientEnvMap;
                 mirrorMaterial.envMapIntensity = 1.0;
                 orbMirrorMaterial.envMap = gradientEnvMap;
                 orbMirrorMaterial.envMapIntensity = 1.0;
                 bubbleMaterial.envMap = gradientEnvMap;
+            } else if (reflectionMode === 'ssr') {
+                // SSR doesn't use envMap, but we keep a subtle one for fallback
+                mirrorMaterial.envMap = gradientEnvMap;
+                mirrorMaterial.envMapIntensity = 0.3;
+                orbMirrorMaterial.envMap = gradientEnvMap;
+                orbMirrorMaterial.envMapIntensity = 0.3;
+                bubbleMaterial.envMap = gradientEnvMap;
             }
             mirrorMaterial.needsUpdate = true;
             orbMirrorMaterial.needsUpdate = true;
             bubbleMaterial.needsUpdate = true;
+        });
+
+        // World selection
+        document.getElementById('worldSelect').addEventListener('change', (e) => {
+            switchWorld(e.target.value);
         });
 
         // Character selection
@@ -2035,10 +4180,41 @@
             birdCollisionEnabled = e.target.checked;
         });
 
+        // Energy aura toggle
+        document.getElementById('auraToggle').addEventListener('change', (e) => {
+            auraEnabled = e.target.checked;
+
+            if (auraEnabled) {
+                // Create aura meshes for each part
+                Object.values(currentCharacter.parts).forEach(mesh => {
+                    if (!mesh || !mesh.geometry) return;
+                    const auraMesh = new THREE.Mesh(mesh.geometry, auraMaterial);
+                    auraMesh.position.copy(mesh.position);
+                    auraMesh.rotation.copy(mesh.rotation);
+                    auraMesh.scale.copy(mesh.scale);
+                    mesh.parent.add(auraMesh);
+                    auraMeshes.push({ aura: auraMesh, source: mesh });
+                });
+            } else {
+                // Remove aura meshes
+                auraMeshes.forEach(({ aura }) => {
+                    aura.parent.remove(aura);
+                });
+                auraMeshes.length = 0;
+            }
+        });
+
+        // Camera creature toggle
+        document.getElementById('cameraCreatureToggle').addEventListener('change', (e) => {
+            cameraCreatureEnabled = e.target.checked;
+            cameraCreature.visible = cameraCreatureEnabled;
+        });
+
         window.addEventListener('resize', () => {
             camera.aspect = window.innerWidth / window.innerHeight;
             camera.updateProjectionMatrix();
             renderer.setSize(window.innerWidth, window.innerHeight);
+            composer.setSize(window.innerWidth, window.innerHeight);
         });
     </script>
 </body>
