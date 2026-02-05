@@ -47,7 +47,12 @@
 <body>
     <div id="info">🐼 Nintendo Style Panda<br><small>Drag to rotate • Scroll to zoom</small></div>
     <div id="controls">
-        <label>Reflection Mode</label>
+        <label>Character</label>
+        <select id="characterSelect">
+            <option value="panda">Panda</option>
+            <option value="sphere">Sphere</option>
+        </select>
+        <label style="margin-top: 12px;">Reflection Mode</label>
         <select id="reflectionMode">
             <option value="realtime">Crisp (Real-time)</option>
             <option value="gradient">Soft (Gradient)</option>
@@ -57,6 +62,33 @@
             <option value="body">Body Only</option>
             <option value="all">All Parts</option>
         </select>
+        <label style="margin-top: 12px;">
+            <input type="checkbox" id="morphToggle" style="margin-right: 6px;">
+            Morph Mode
+        </label>
+        <label style="margin-top: 12px;">
+            <input type="checkbox" id="addMaterialToggle" style="margin-right: 6px;">
+            Add Material Mode
+        </label>
+        <label style="margin-top: 12px;">
+            <input type="checkbox" id="birdsToggle" style="margin-right: 6px;">
+            Chaotic Birds
+        </label>
+        <label style="margin-top: 12px;">Orbiting Orb</label>
+        <select id="orbitOrbSelect">
+            <option value="none">None</option>
+            <option value="same">Same Camera</option>
+            <option value="own">Own Camera</option>
+            <option value="bubble">Bubble (Refract)</option>
+        </select>
+        <label style="margin-top: 12px;">
+            <input type="checkbox" id="floatModeToggle" style="margin-right: 6px;">
+            Tap to Float
+        </label>
+        <label style="margin-top: 12px;">
+            <input type="checkbox" id="birdCollisionToggle" style="margin-right: 6px;">
+            Bird Collisions
+        </label>
     </div>
 
     <script type="importmap">
@@ -736,6 +768,132 @@
         scene.add(panda);
 
         // ============================================
+        // CHARACTER MANAGEMENT
+        // ============================================
+
+        // Store panda references
+        const pandaCharacter = {
+            group: panda,
+            body: body,
+            head: head,
+            parts: {
+                body, head, leftEar, rightEar, muzzle, nose,
+                leftArm, rightArm, leftPaw, rightPaw,
+                leftLeg, rightLeg, leftFoot, rightFoot, tail,
+                leftEyePatch, rightEyePatch, leftCheek, rightCheek, chestPatch
+            },
+            animateParts: {
+                body, head, leftEar, rightEar, muzzle, nose,
+                leftArm, rightArm, leftPaw, rightPaw,
+                leftEyePatch, rightEyePatch, leftCheek, rightCheek,
+                leftEye, rightEye, tail
+            }
+        };
+
+        // Create sphere character
+        function createSphereCharacter() {
+            const sphereGroup = new THREE.Group();
+
+            // Main sphere body
+            let sphereGeometry = new THREE.IcosahedronGeometry(1.5, 4);
+            sphereGeometry = smoothGeometry(sphereGeometry);
+            const sphereBody = new THREE.Mesh(sphereGeometry, mirrorMaterial);
+            sphereBody.castShadow = true;
+            sphereBody.receiveShadow = true;
+            sphereBody.position.y = 1.8;
+            sphereGroup.add(sphereBody);
+
+            // Store original positions for morphing
+            storeMorphData(sphereBody);
+
+            return {
+                group: sphereGroup,
+                body: sphereBody,
+                head: sphereBody, // sphere is its own head
+                parts: { body: sphereBody },
+                animateParts: { body: sphereBody }
+            };
+        }
+
+        // Current character state
+        let currentCharacter = pandaCharacter;
+        let sphereCharacter = null; // Created lazily
+
+        // Switch character function
+        function switchCharacter(characterType) {
+            // Remove current character from scene
+            scene.remove(currentCharacter.group);
+
+            // Reset morph state
+            morphEnabled = false;
+            document.getElementById('morphToggle').checked = false;
+
+            if (characterType === 'panda') {
+                currentCharacter = pandaCharacter;
+            } else if (characterType === 'sphere') {
+                // Create sphere if not exists
+                if (!sphereCharacter) {
+                    sphereCharacter = createSphereCharacter();
+                }
+                currentCharacter = sphereCharacter;
+            }
+
+            // Add new character to scene
+            scene.add(currentCharacter.group);
+
+            // Update clickable meshes
+            updateClickableMeshes();
+
+            // Update morphable parts
+            updateMorphableParts();
+
+            // Reset mirror parts dropdown
+            document.getElementById('mirrorParts').value = 'body';
+            applyMirrorSetting('body');
+        }
+
+        function updateClickableMeshes() {
+            clickableMeshes.length = 0;
+            Object.values(currentCharacter.parts).forEach(mesh => {
+                if (mesh) clickableMeshes.push(mesh);
+            });
+        }
+
+        function updateMorphableParts() {
+            morphableParts.length = 0;
+            Object.values(currentCharacter.parts).forEach(mesh => {
+                if (mesh && mesh.userData.originalPositions) {
+                    morphableParts.push(mesh);
+                } else if (mesh) {
+                    storeMorphData(mesh);
+                    morphableParts.push(mesh);
+                }
+            });
+        }
+
+        function applyMirrorSetting(mode) {
+            const allMirror = (mode === 'all');
+            Object.entries(currentCharacter.parts).forEach(([name, mesh]) => {
+                if (!mesh) return;
+                if (name === 'body') return; // Body always mirror
+
+                // Determine original material based on part name
+                let originalMat = whiteFurMaterial;
+                if (name.includes('Ear') || name.includes('Arm') || name.includes('Paw') ||
+                    name.includes('Leg') || name.includes('Foot') || name.includes('EyePatch') ||
+                    name === 'chestPatch') {
+                    originalMat = blackFurMaterial;
+                } else if (name === 'nose') {
+                    originalMat = noseMaterial;
+                } else if (name.includes('Cheek')) {
+                    originalMat = cheekMaterial;
+                }
+
+                mesh.material = allMirror ? mirrorMaterial : originalMat;
+            });
+        }
+
+        // ============================================
         // GROUND - Custom organic platform
         // ============================================
         const groundProfile = [
@@ -833,55 +991,956 @@
         scene.add(createBamboo(2.6, -0.3, 4.2));
 
         // ============================================
+        // CHAOTIC BIRDS
+        // ============================================
+        const birdsGroup = new THREE.Group();
+        const birds = [];
+        const BIRD_COUNT = 150;
+        let birdsEnabled = false;
+
+        // Bird material
+        const birdMaterial = new THREE.MeshStandardMaterial({
+            color: 0x222222,
+            roughness: 0.8,
+            metalness: 0.1,
+            side: THREE.DoubleSide,
+        });
+
+        // Create a simple bird geometry (like a flying V shape)
+        function createBirdGeometry() {
+            const geometry = new THREE.BufferGeometry();
+
+            // Bird body - simple triangular shape with wings
+            const vertices = new Float32Array([
+                // Body (pointing forward in -Z)
+                0, 0, -0.15,      // nose
+                -0.02, 0, 0.05,   // left body
+                0.02, 0, 0.05,    // right body
+
+                // Left wing
+                -0.02, 0, 0,      // wing root
+                -0.15, 0.02, 0.05, // wing tip up
+                -0.02, 0, 0.08,   // wing back
+
+                // Right wing
+                0.02, 0, 0,       // wing root
+                0.15, 0.02, 0.05, // wing tip up
+                0.02, 0, 0.08,    // wing back
+
+                // Tail
+                0, 0, 0.05,       // tail base
+                -0.03, 0, 0.12,   // tail left
+                0.03, 0, 0.12,    // tail right
+            ]);
+
+            const indices = [
+                // Body
+                0, 1, 2,
+                // Left wing
+                3, 4, 5,
+                // Right wing
+                6, 7, 8,
+                // Tail
+                9, 10, 11,
+            ];
+
+            geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+            geometry.setIndex(indices);
+            geometry.computeVertexNormals();
+
+            return geometry;
+        }
+
+        const birdGeometry = createBirdGeometry();
+
+        // Create birds with random properties
+        for (let i = 0; i < BIRD_COUNT; i++) {
+            const bird = new THREE.Mesh(birdGeometry, birdMaterial.clone());
+
+            // Randomize bird color slightly
+            bird.material.color.setHSL(
+                Math.random() * 0.1 + 0.55, // blue-ish to purple-ish
+                0.3 + Math.random() * 0.4,
+                0.2 + Math.random() * 0.3
+            );
+
+            // Random starting position in a sphere around the scene
+            const radius = 8 + Math.random() * 12;
+            const theta = Math.random() * Math.PI * 2;
+            const phi = Math.random() * Math.PI;
+
+            bird.position.set(
+                radius * Math.sin(phi) * Math.cos(theta),
+                3 + Math.random() * 8,
+                radius * Math.sin(phi) * Math.sin(theta)
+            );
+
+            // Scale variation - BIGGER birds
+            const scale = 2.0 + Math.random() * 3.0;
+            bird.scale.set(scale, scale, scale);
+
+            // Store bird properties for animation
+            bird.userData = {
+                // Velocity - SLOWER
+                vx: (Math.random() - 0.5) * 0.08,
+                vy: (Math.random() - 0.5) * 0.03,
+                vz: (Math.random() - 0.5) * 0.08,
+                // Curve and sweep factors - for graceful arcing paths
+                curveSpeed: 0.15 + Math.random() * 0.3,
+                curveOffset: Math.random() * Math.PI * 2,
+                curveAmplitude: 0.3 + Math.random() * 0.5,
+                // Dipping factors
+                dipSpeed: 0.1 + Math.random() * 0.2,
+                dipOffset: Math.random() * Math.PI * 2,
+                dipAmplitude: 0.2 + Math.random() * 0.4,
+                // Wing flap - slower for bigger birds
+                wingSpeed: 3 + Math.random() * 5,
+                // Soaring phase offset
+                soarOffset: Math.random() * Math.PI * 2,
+            };
+
+            bird.castShadow = true;
+            birds.push(bird);
+            birdsGroup.add(bird);
+        }
+
+        // Birds group is added to scene but initially invisible
+        birdsGroup.visible = false;
+        scene.add(birdsGroup);
+
+        // Animate birds with sweeping, curving, dipping paths
+        function animateBirds(time, deltaTime) {
+            if (!birdsEnabled) return;
+
+            birds.forEach((bird, index) => {
+                const data = bird.userData;
+
+                // Sweeping curves - gradual direction changes
+                const curveX = Math.sin(time * data.curveSpeed + data.curveOffset) * data.curveAmplitude;
+                const curveZ = Math.cos(time * data.curveSpeed * 0.8 + data.curveOffset) * data.curveAmplitude;
+
+                // Graceful dipping motion
+                const dip = Math.sin(time * data.dipSpeed + data.dipOffset) * data.dipAmplitude;
+                const dipDerivative = Math.cos(time * data.dipSpeed + data.dipOffset) * data.dipAmplitude * data.dipSpeed;
+
+                // Soaring - occasional gliding with less wing movement
+                const soarPhase = Math.sin(time * 0.1 + data.soarOffset);
+                const isSoaring = soarPhase > 0.7;
+
+                // Slowly changing base velocity for long sweeping arcs
+                data.vx += curveX * 0.003;
+                data.vz += curveZ * 0.003;
+                data.vy += dip * 0.002;
+
+                // Very gentle attraction to center for loose grouping
+                const toCenterX = -bird.position.x * 0.0003;
+                const toCenterY = (6 - bird.position.y) * 0.001;
+                const toCenterZ = -bird.position.z * 0.0003;
+
+                data.vx += toCenterX;
+                data.vy += toCenterY;
+                data.vz += toCenterZ;
+
+                // Damping for smooth motion
+                data.vx *= 0.995;
+                data.vy *= 0.995;
+                data.vz *= 0.995;
+
+                // Speed limits - slower max speed
+                const maxSpeed = 0.12;
+                const minSpeed = 0.03;
+                const speed = Math.sqrt(data.vx * data.vx + data.vy * data.vy + data.vz * data.vz);
+
+                if (speed > maxSpeed) {
+                    data.vx = (data.vx / speed) * maxSpeed;
+                    data.vy = (data.vy / speed) * maxSpeed;
+                    data.vz = (data.vz / speed) * maxSpeed;
+                } else if (speed < minSpeed && speed > 0.001) {
+                    // Keep minimum forward motion
+                    data.vx = (data.vx / speed) * minSpeed;
+                    data.vz = (data.vz / speed) * minSpeed;
+                }
+
+                // Update position
+                bird.position.x += data.vx;
+                bird.position.y += data.vy;
+                bird.position.z += data.vz;
+
+                // Keep birds in bounds (wrap around smoothly)
+                const bounds = 25;
+                if (bird.position.x > bounds) bird.position.x = -bounds;
+                if (bird.position.x < -bounds) bird.position.x = bounds;
+                if (bird.position.z > bounds) bird.position.z = -bounds;
+                if (bird.position.z < -bounds) bird.position.z = bounds;
+                if (bird.position.y > 18) data.vy -= 0.005;
+                if (bird.position.y < 2) data.vy += 0.005;
+
+                // Smooth facing direction
+                const lookAheadDist = 5;
+                bird.lookAt(
+                    bird.position.x + data.vx * lookAheadDist,
+                    bird.position.y + data.vy * lookAheadDist,
+                    bird.position.z + data.vz * lookAheadDist
+                );
+
+                // Wing flapping - slower, and even slower when soaring
+                const flapSpeed = isSoaring ? data.wingSpeed * 0.3 : data.wingSpeed;
+                const flapAmplitude = isSoaring ? 0.1 : 0.25;
+                const wingFlap = Math.sin(time * flapSpeed) * flapAmplitude;
+                bird.rotation.z += wingFlap;
+
+                // Banking on curves - tilt into turns
+                const banking = -curveX * 0.8;
+                bird.rotation.z += banking;
+
+                // Pitch based on climbing/diving
+                bird.rotation.x += dipDerivative * 0.5;
+            });
+        }
+
+        // ============================================
+        // ORBITING MIRROR ORB
+        // ============================================
+        let orbitOrbMode = 'none'; // 'none', 'same', 'own'
+
+        // Create a separate CubeCamera for the orb
+        const orbCubeRenderTarget = new THREE.WebGLCubeRenderTarget(512, {
+            format: THREE.RGBAFormat,
+            generateMipmaps: true,
+            minFilter: THREE.LinearMipmapLinearFilter,
+        });
+        const orbCubeCamera = new THREE.CubeCamera(0.1, 100, orbCubeRenderTarget);
+        scene.add(orbCubeCamera);
+
+        // Separate mirror material for orb with its own camera
+        const orbMirrorMaterial = new THREE.MeshStandardMaterial({
+            color: 0xffffff,
+            roughness: 0.0,
+            metalness: 1.0,
+            envMap: orbCubeRenderTarget.texture,
+            envMapIntensity: 1.5,
+        });
+
+        // Bubble material with refraction and iridescence
+        const bubbleMaterial = new THREE.MeshPhysicalMaterial({
+            color: 0xffffff,
+            metalness: 0.0,
+            roughness: 0.0,
+            transmission: 1.0,        // Fully transparent/refractive
+            thickness: 0.5,           // Simulated thickness for refraction
+            ior: 1.5,                 // Index of refraction (glass-like)
+            envMap: cubeRenderTarget.texture,
+            envMapIntensity: 1.0,
+            clearcoat: 1.0,
+            clearcoatRoughness: 0.0,
+            iridescence: 1.0,         // Rainbow soap bubble effect
+            iridescenceIOR: 1.3,
+            iridescenceThicknessRange: [100, 400],
+            transparent: true,
+            opacity: 0.9,
+        });
+
+        // Create the orbiting orb
+        let orbitOrbGeometry = new THREE.IcosahedronGeometry(0.5, 4);
+        orbitOrbGeometry = smoothGeometry(orbitOrbGeometry);
+        const orbitOrb = new THREE.Mesh(orbitOrbGeometry, mirrorMaterial);
+        orbitOrb.castShadow = true;
+        orbitOrb.visible = false;
+        scene.add(orbitOrb);
+
+        // Orbit parameters
+        const orbitRadius = 3.5;
+        const orbitSpeed = 0.8;
+        const orbitTilt = 0.3;
+        const bobSpeed = 2;
+        const bobAmount = 0.3;
+
+        // ============================================
+        // BIRD COLLISION SYSTEM
+        // ============================================
+        let birdCollisionEnabled = false;
+        const birdCollisionRadius = 1.8; // Approximate character radius for collision
+        const birdBounceStrength = 0.02; // How strongly birds bounce off
+        const birdImpactStrength = 0.25; // Impact on character mesh
+
+        function processBirdCollisions() {
+            if (!birdCollisionEnabled || !birdsEnabled) return;
+
+            // Get character center position (accounting for character group position)
+            const charPos = new THREE.Vector3();
+            if (currentCharacter.body) {
+                currentCharacter.body.getWorldPosition(charPos);
+            } else {
+                charPos.copy(currentCharacter.group.position);
+                charPos.y += 1.8; // Approximate center height
+            }
+
+            birds.forEach(bird => {
+                // Calculate distance from bird to character center
+                const dx = bird.position.x - charPos.x;
+                const dy = bird.position.y - charPos.y;
+                const dz = bird.position.z - charPos.z;
+                const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+
+                // Check for collision
+                if (dist < birdCollisionRadius && !bird.userData.justBounced) {
+                    // Mark as bounced to prevent multiple collisions
+                    bird.userData.justBounced = true;
+                    setTimeout(() => { bird.userData.justBounced = false; }, 500);
+
+                    // Calculate bounce direction (away from character center)
+                    const nx = dx / dist;
+                    const ny = dy / dist;
+                    const nz = dz / dist;
+
+                    // Gently deflect bird velocity (soft bounce, not full reflection)
+                    const dot = bird.userData.vx * nx + bird.userData.vy * ny + bird.userData.vz * nz;
+                    // Only deflect 30% - keeps most of original trajectory
+                    const deflectAmount = 0.3;
+                    bird.userData.vx = bird.userData.vx - deflectAmount * dot * nx + nx * birdBounceStrength;
+                    bird.userData.vy = bird.userData.vy - deflectAmount * dot * ny + ny * birdBounceStrength;
+                    bird.userData.vz = bird.userData.vz - deflectAmount * dot * nz + nz * birdBounceStrength;
+
+                    // Push bird outside collision radius
+                    bird.position.x = charPos.x + nx * (birdCollisionRadius + 0.3);
+                    bird.position.y = charPos.y + ny * (birdCollisionRadius + 0.3);
+                    bird.position.z = charPos.z + nz * (birdCollisionRadius + 0.3);
+
+                    // Create impact on character mesh
+                    // Find which mesh is closest to the collision point
+                    const collisionPoint = new THREE.Vector3(
+                        charPos.x + nx * birdCollisionRadius * 0.8,
+                        charPos.y + ny * birdCollisionRadius * 0.8,
+                        charPos.z + nz * birdCollisionRadius * 0.8
+                    );
+
+                    // Find the mesh that was hit
+                    let hitMesh = currentCharacter.body;
+                    let closestDist = Infinity;
+
+                    Object.values(currentCharacter.parts).forEach(mesh => {
+                        if (!mesh) return;
+                        const meshPos = new THREE.Vector3();
+                        mesh.getWorldPosition(meshPos);
+                        const d = collisionPoint.distanceTo(meshPos);
+                        if (d < closestDist) {
+                            closestDist = d;
+                            hitMesh = mesh;
+                        }
+                    });
+
+                    // Convert collision point to local coordinates
+                    const localPoint = hitMesh.worldToLocal(collisionPoint.clone());
+
+                    // Add impact (smaller than click impacts)
+                    impacts.push({
+                        mesh: hitMesh,
+                        point: localPoint,
+                        worldPoint: collisionPoint,
+                        time: 0,
+                        strength: birdImpactStrength,
+                        radius: 0.6,
+                        duration: 0.8
+                    });
+
+                    // Limit impacts
+                    if (impacts.length > 30) {
+                        impacts.shift();
+                    }
+                }
+            });
+        }
+
+        // Animate the orbiting orb
+        function animateOrbitOrb(time) {
+            if (orbitOrbMode === 'none') return;
+
+            // Elliptical orbit with tilt
+            const angle = time * orbitSpeed;
+            const x = Math.cos(angle) * orbitRadius;
+            const z = Math.sin(angle) * orbitRadius * 0.8;
+            const baseY = 2.5 + Math.sin(angle * 2) * orbitTilt;
+            const bob = Math.sin(time * bobSpeed) * bobAmount;
+
+            orbitOrb.position.set(x, baseY + bob, z);
+
+            // Spin the orb on its own axis
+            orbitOrb.rotation.y = time * 2;
+            orbitOrb.rotation.x = time * 0.5;
+        }
+
+        // ============================================
+        // TAP TO FLOAT PHYSICS
+        // ============================================
+        let floatModeEnabled = false;
+        let characterVelocityY = 0;
+        const floatGravity = 2.0;       // How fast it falls
+        const floatBoost = 0.8;         // Upward boost per tap
+        const floatDrag = 0.95;         // Air resistance
+        const groundLevel = 0;          // Where character rests
+
+        function applyFloatPhysics(deltaTime) {
+            if (!floatModeEnabled) return;
+
+            // Apply gravity
+            characterVelocityY -= floatGravity * deltaTime;
+
+            // Apply drag for slow floating descent
+            characterVelocityY *= floatDrag;
+
+            // Update character position
+            currentCharacter.group.position.y += characterVelocityY * deltaTime * 10;
+
+            // Ground collision
+            if (currentCharacter.group.position.y < groundLevel) {
+                currentCharacter.group.position.y = groundLevel;
+                characterVelocityY = 0;
+            }
+
+            // Slight rotation based on velocity (tilt forward when rising, back when falling)
+            currentCharacter.group.rotation.x = characterVelocityY * 0.05;
+        }
+
+        function boostCharacterUp() {
+            if (!floatModeEnabled) return;
+            characterVelocityY += floatBoost;
+        }
+
+        // ============================================
+        // MORPH SETUP - Store original vertex positions
+        // ============================================
+        let morphEnabled = false;
+
+        // Helper to store original positions for a mesh
+        function storeMorphData(mesh) {
+            const geometry = mesh.geometry;
+            const positions = geometry.attributes.position;
+            mesh.userData.originalPositions = new Float32Array(positions.array);
+            return mesh;
+        }
+
+        // Store original positions for morphable parts
+        const morphableParts = [
+            storeMorphData(body),
+            storeMorphData(head),
+            storeMorphData(leftEar),
+            storeMorphData(rightEar),
+            storeMorphData(muzzle),
+            storeMorphData(leftArm),
+            storeMorphData(rightArm),
+            storeMorphData(leftLeg),
+            storeMorphData(rightLeg),
+            storeMorphData(leftPaw),
+            storeMorphData(rightPaw),
+            storeMorphData(leftFoot),
+            storeMorphData(rightFoot),
+            storeMorphData(tail),
+        ];
+
+        // Morph function - applies dramatic deformations
+        function applyMorph(mesh, time, intensity = 1.0) {
+            const geometry = mesh.geometry;
+            const positions = geometry.attributes.position;
+            const original = mesh.userData.originalPositions;
+
+            if (!original) return;
+
+            for (let i = 0; i < positions.count; i++) {
+                const ix = i * 3;
+                const iy = i * 3 + 1;
+                const iz = i * 3 + 2;
+
+                const ox = original[ix];
+                const oy = original[iy];
+                const oz = original[iz];
+
+                // Multiple wave frequencies for organic bulging
+                const wave1 = Math.sin(time * 2 + oy * 3) * 0.15;
+                const wave2 = Math.sin(time * 1.5 + ox * 4 + oz * 2) * 0.12;
+                const wave3 = Math.cos(time * 2.5 + oy * 2 + ox) * 0.1;
+                const wave4 = Math.sin(time * 3 + (ox + oy + oz) * 2) * 0.08;
+
+                // Radial bulge based on height
+                const radialBulge = Math.sin(time * 1.8 + oy * 4) * 0.2;
+
+                // Twist deformation
+                const twist = Math.sin(time * 1.2) * 0.3 * oy;
+                const cosT = Math.cos(twist);
+                const sinT = Math.sin(twist);
+
+                // Apply deformations
+                let nx = ox + wave1 * intensity + radialBulge * (ox / (Math.abs(ox) + 0.1)) * intensity;
+                let ny = oy + wave3 * intensity;
+                let nz = oz + wave2 * intensity + radialBulge * (oz / (Math.abs(oz) + 0.1)) * intensity;
+
+                // Apply twist around Y axis
+                const twisted_x = nx * cosT - nz * sinT;
+                const twisted_z = nx * sinT + nz * cosT;
+
+                // Squash and stretch
+                const squash = 1 + Math.sin(time * 2) * 0.15 * intensity;
+                const stretch = 1 + Math.cos(time * 2) * 0.1 * intensity;
+
+                positions.array[ix] = twisted_x * squash;
+                positions.array[iy] = ny * stretch;
+                positions.array[iz] = twisted_z * squash;
+            }
+
+            positions.needsUpdate = true;
+            geometry.computeVertexNormals();
+        }
+
+        // Reset mesh to original positions
+        function resetMorph(mesh) {
+            const geometry = mesh.geometry;
+            const positions = geometry.attributes.position;
+            const original = mesh.userData.originalPositions;
+
+            if (!original) return;
+
+            positions.array.set(original);
+            positions.needsUpdate = true;
+            geometry.computeVertexNormals();
+        }
+
+        // ============================================
+        // CLICK IMPACT SYSTEM
+        // ============================================
+        const raycaster = new THREE.Raycaster();
+        const mouse = new THREE.Vector2();
+        const impacts = []; // Store active impacts: { mesh, point, time, strength }
+        let addMaterialMode = false;
+
+        // Get all clickable panda meshes
+        const clickableMeshes = [
+            body, head, leftEar, rightEar, muzzle, nose,
+            leftArm, rightArm, leftPaw, rightPaw,
+            leftLeg, rightLeg, leftFoot, rightFoot, tail,
+            leftEyePatch, rightEyePatch, leftCheek, rightCheek, chestPatch
+        ];
+
+        // Add material permanently at a point - SMOOTH and UNLIMITED
+        function addMaterialAtPoint(mesh, localPoint, strength = 0.15, radius = 1.2) {
+            const geometry = mesh.geometry;
+            const positions = geometry.attributes.position;
+            const original = mesh.userData.originalPositions;
+
+            if (!original) return;
+
+            // Use CURRENT positions for distance (allows unlimited growth)
+            for (let i = 0; i < positions.count; i++) {
+                const ix = i * 3;
+                const iy = i * 3 + 1;
+                const iz = i * 3 + 2;
+
+                // Use current position for distance calculation (not original)
+                const vx = positions.array[ix];
+                const vy = positions.array[iy];
+                const vz = positions.array[iz];
+
+                // Distance from click point
+                const dx = vx - localPoint.x;
+                const dy = vy - localPoint.y;
+                const dz = vz - localPoint.z;
+                const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+
+                // Apply addition with very smooth gaussian-like falloff
+                if (dist < radius) {
+                    // Gaussian falloff for smoother result
+                    const normalizedDist = dist / radius;
+                    const gaussianFalloff = Math.exp(-normalizedDist * normalizedDist * 3);
+
+                    const addAmount = strength * gaussianFalloff;
+
+                    if (dist > 0.001) {
+                        // Push outward from click point
+                        const dirX = dx / dist;
+                        const dirY = dy / dist;
+                        const dirZ = dz / dist;
+
+                        original[ix] += dirX * addAmount;
+                        original[iy] += dirY * addAmount;
+                        original[iz] += dirZ * addAmount;
+                    } else {
+                        // At center, push outward based on surface normal approximation
+                        original[iy] += addAmount;
+                    }
+                }
+            }
+
+            // Update current positions from modified original
+            positions.array.set(original);
+            positions.needsUpdate = true;
+            geometry.computeVertexNormals();
+        }
+
+        // Smooth the mesh geometry to reduce angular appearance
+        function smoothMeshGeometry(mesh, iterations = 1) {
+            const geometry = mesh.geometry;
+            const positions = geometry.attributes.position;
+            const original = mesh.userData.originalPositions;
+
+            if (!original) return;
+
+            // Simple Laplacian smoothing
+            const vertexCount = positions.count;
+            const smoothed = new Float32Array(original.length);
+            smoothed.set(original);
+
+            for (let iter = 0; iter < iterations; iter++) {
+                // Build adjacency (approximate by distance)
+                for (let i = 0; i < vertexCount; i++) {
+                    const ix = i * 3;
+                    const iy = i * 3 + 1;
+                    const iz = i * 3 + 2;
+
+                    let sumX = 0, sumY = 0, sumZ = 0;
+                    let count = 0;
+
+                    const vx = original[ix];
+                    const vy = original[iy];
+                    const vz = original[iz];
+
+                    // Find nearby vertices and average
+                    for (let j = 0; j < vertexCount; j++) {
+                        if (i === j) continue;
+
+                        const jx = j * 3;
+                        const jy = j * 3 + 1;
+                        const jz = j * 3 + 2;
+
+                        const dx = original[jx] - vx;
+                        const dy = original[jy] - vy;
+                        const dz = original[jz] - vz;
+                        const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+
+                        // Only consider close neighbors
+                        if (dist < 0.3) {
+                            const weight = 1 - (dist / 0.3);
+                            sumX += original[jx] * weight;
+                            sumY += original[jy] * weight;
+                            sumZ += original[jz] * weight;
+                            count += weight;
+                        }
+                    }
+
+                    if (count > 0) {
+                        // Blend between original and smoothed (0.3 = subtle smoothing)
+                        const blend = 0.3;
+                        smoothed[ix] = vx * (1 - blend) + (sumX / count) * blend;
+                        smoothed[iy] = vy * (1 - blend) + (sumY / count) * blend;
+                        smoothed[iz] = vz * (1 - blend) + (sumZ / count) * blend;
+                    }
+                }
+
+                original.set(smoothed);
+            }
+
+            positions.array.set(original);
+            positions.needsUpdate = true;
+            geometry.computeVertexNormals();
+        }
+
+        // Track mouse hold state for continuous material addition
+        let isAddingMaterial = false;
+        let currentAddTarget = null; // { mesh, getLocalPoint }
+
+        // Update mouse position for continuous tracking
+        renderer.domElement.addEventListener('mousemove', (event) => {
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+        });
+
+        // Handle mouse down - start adding material
+        renderer.domElement.addEventListener('mousedown', (event) => {
+            if (event.button !== 0) return; // Only left click
+
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+            raycaster.setFromCamera(mouse, camera);
+            const intersects = raycaster.intersectObjects(clickableMeshes);
+
+            if (intersects.length > 0) {
+                const hit = intersects[0];
+                const mesh = hit.object;
+
+                // Boost character up if float mode enabled
+                if (floatModeEnabled) {
+                    boostCharacterUp();
+                }
+
+                if (addMaterialMode) {
+                    // Start continuous material addition
+                    isAddingMaterial = true;
+                    currentAddTarget = { mesh };
+                    // Disable orbit controls while adding material
+                    controls.enabled = false;
+                } else {
+                    // Convert hit point to local coordinates of the mesh
+                    const localPoint = mesh.worldToLocal(hit.point.clone());
+                    // Add temporary impact
+                    impacts.push({
+                        mesh: mesh,
+                        point: localPoint,
+                        worldPoint: hit.point.clone(),
+                        time: 0,
+                        strength: 0.4,
+                        radius: 0.8,
+                        duration: 1.5
+                    });
+
+                    // Limit number of active impacts
+                    if (impacts.length > 20) {
+                        impacts.shift();
+                    }
+                }
+            }
+        });
+
+        // Track meshes that were modified for smoothing on release
+        let modifiedMeshes = new Set();
+        let addFrameCount = 0;
+
+        // Handle mouse up - stop adding material and apply smoothing
+        renderer.domElement.addEventListener('mouseup', () => {
+            if (isAddingMaterial) {
+                // Apply smoothing to all modified meshes
+                modifiedMeshes.forEach(mesh => {
+                    smoothMeshGeometry(mesh, 2);
+                });
+                modifiedMeshes.clear();
+                addFrameCount = 0;
+
+                isAddingMaterial = false;
+                currentAddTarget = null;
+                controls.enabled = true;
+            }
+        });
+
+        // Handle mouse leave - stop adding material
+        renderer.domElement.addEventListener('mouseleave', () => {
+            if (isAddingMaterial) {
+                modifiedMeshes.forEach(mesh => {
+                    smoothMeshGeometry(mesh, 2);
+                });
+                modifiedMeshes.clear();
+                addFrameCount = 0;
+
+                isAddingMaterial = false;
+                currentAddTarget = null;
+                controls.enabled = true;
+            }
+        });
+
+        // Continuous material addition function (called from animation loop)
+        function processContinuousAddMaterial() {
+            if (!isAddingMaterial || !currentAddTarget) return;
+
+            raycaster.setFromCamera(mouse, camera);
+            const intersects = raycaster.intersectObjects(clickableMeshes);
+
+            if (intersects.length > 0) {
+                const hit = intersects[0];
+                const mesh = hit.object;
+                const localPoint = mesh.worldToLocal(hit.point.clone());
+
+                // Track modified mesh for smoothing later
+                modifiedMeshes.add(mesh);
+                addFrameCount++;
+
+                // Add material - larger radius for smoother blending, unlimited growth
+                addMaterialAtPoint(mesh, localPoint, 0.06, 1.0);
+
+                // Apply light smoothing every 30 frames to keep it smooth during addition
+                if (addFrameCount % 30 === 0) {
+                    smoothMeshGeometry(mesh, 1);
+                }
+            }
+        }
+
+        // Apply impact deformation to a mesh
+        function applyImpacts(mesh, deltaTime) {
+            const geometry = mesh.geometry;
+            const positions = geometry.attributes.position;
+            const original = mesh.userData.originalPositions;
+
+            if (!original) return;
+
+            // Start from original or current morph positions
+            if (!morphEnabled) {
+                positions.array.set(original);
+            }
+
+            // Get mesh world matrix for transforming points
+            mesh.updateMatrixWorld();
+
+            // Apply each active impact that affects this mesh
+            const relevantImpacts = impacts.filter(imp => imp.mesh === mesh);
+
+            for (const impact of relevantImpacts) {
+                impact.time += deltaTime;
+
+                // Calculate falloff over time (starts strong, fades out)
+                const progress = impact.time / impact.duration;
+                if (progress >= 1) continue;
+
+                // Elastic bounce envelope
+                const envelope = Math.exp(-progress * 3) * Math.cos(progress * Math.PI * 4);
+                const currentStrength = impact.strength * envelope;
+
+                // Apply to each vertex
+                for (let i = 0; i < positions.count; i++) {
+                    const ix = i * 3;
+                    const iy = i * 3 + 1;
+                    const iz = i * 3 + 2;
+
+                    const vx = positions.array[ix];
+                    const vy = positions.array[iy];
+                    const vz = positions.array[iz];
+
+                    // Distance from impact point
+                    const dx = vx - impact.point.x;
+                    const dy = vy - impact.point.y;
+                    const dz = vz - impact.point.z;
+                    const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+
+                    // Falloff based on distance
+                    if (dist < impact.radius) {
+                        const falloff = 1 - (dist / impact.radius);
+                        const smoothFalloff = falloff * falloff * (3 - 2 * falloff); // smoothstep
+
+                        // Push vertices outward from impact point
+                        const pushStrength = currentStrength * smoothFalloff;
+
+                        if (dist > 0.001) {
+                            positions.array[ix] += (dx / dist) * pushStrength;
+                            positions.array[iy] += (dy / dist) * pushStrength;
+                            positions.array[iz] += (dz / dist) * pushStrength;
+                        } else {
+                            // If at impact center, push outward in normal direction
+                            positions.array[iy] += pushStrength;
+                        }
+                    }
+                }
+            }
+
+            positions.needsUpdate = true;
+            geometry.computeVertexNormals();
+        }
+
+        // Clean up expired impacts
+        function cleanupImpacts() {
+            for (let i = impacts.length - 1; i >= 0; i--) {
+                if (impacts[i].time >= impacts[i].duration) {
+                    impacts.splice(i, 1);
+                }
+            }
+        }
+
+        // ============================================
         // ANIMATION
         // ============================================
         let time = 0;
+        let lastTime = performance.now();
 
         function animate() {
             requestAnimationFrame(animate);
-            time += 0.016;
 
-            // Breathing
+            // Calculate delta time
+            const currentTime = performance.now();
+            const deltaTime = (currentTime - lastTime) / 1000;
+            lastTime = currentTime;
+            time += deltaTime;
+
+            // Breathing animation for current character's body
             const breathe = Math.sin(time * 2) * 0.015;
-            body.scale.x = 1 + breathe;
-            body.scale.z = 1 - breathe * 0.5;
+            if (currentCharacter.body) {
+                currentCharacter.body.scale.x = 1 + breathe;
+                currentCharacter.body.scale.z = 1 - breathe * 0.5;
+            }
 
-            // Head movement
-            head.position.y = 3.3 + Math.sin(time * 1.5) * 0.02;
-            head.rotation.z = Math.sin(time * 0.8) * 0.015;
-            head.rotation.y = Math.sin(time * 0.5) * 0.02;
+            // Panda-specific animations
+            if (currentCharacter === pandaCharacter) {
+                // Head movement
+                head.position.y = 3.3 + Math.sin(time * 1.5) * 0.02;
+                head.rotation.z = Math.sin(time * 0.8) * 0.015;
+                head.rotation.y = Math.sin(time * 0.5) * 0.02;
 
-            // Sync face with head
-            const headY = head.position.y;
-            muzzle.position.y = headY - 0.3;
-            nose.position.y = headY - 0.2;
-            leftEyePatch.position.y = headY + 0.05;
-            rightEyePatch.position.y = headY + 0.05;
-            leftEye.position.y = headY + 0.1;
-            rightEye.position.y = headY + 0.1;
-            leftCheek.position.y = headY - 0.25;
-            rightCheek.position.y = headY - 0.25;
+                // Sync face with head
+                const headY = head.position.y;
+                muzzle.position.y = headY - 0.3;
+                nose.position.y = headY - 0.2;
+                leftEyePatch.position.y = headY + 0.05;
+                rightEyePatch.position.y = headY + 0.05;
+                leftEye.position.y = headY + 0.1;
+                rightEye.position.y = headY + 0.1;
+                leftCheek.position.y = headY - 0.25;
+                rightCheek.position.y = headY - 0.25;
 
-            // Ear wiggle
-            leftEar.rotation.z = 0.2 + Math.sin(time * 3) * 0.08;
-            rightEar.rotation.z = -0.2 - Math.sin(time * 3) * 0.08;
-            leftEar.position.y = headY + 0.8;
-            rightEar.position.y = headY + 0.8;
+                leftEar.position.y = headY + 0.8;
+                rightEar.position.y = headY + 0.8;
 
-            // Arm swing
-            leftArm.rotation.x = -0.4 + Math.sin(time * 1.8) * 0.08;
-            rightArm.rotation.x = -0.4 + Math.sin(time * 1.8 + Math.PI) * 0.08;
-            leftPaw.position.y = 2.05 + Math.sin(time * 1.8) * 0.05;
-            rightPaw.position.y = 2.05 + Math.sin(time * 1.8 + Math.PI) * 0.05;
+                // Arm swing
+                leftArm.rotation.x = -0.4 + Math.sin(time * 1.8) * 0.08;
+                rightArm.rotation.x = -0.4 + Math.sin(time * 1.8 + Math.PI) * 0.08;
+                leftPaw.position.y = 2.05 + Math.sin(time * 1.8) * 0.05;
+                rightPaw.position.y = 2.05 + Math.sin(time * 1.8 + Math.PI) * 0.05;
 
-            // Tail wag
-            tail.rotation.y = Math.sin(time * 4) * 0.2;
+                // Tail wag
+                tail.rotation.y = Math.sin(time * 4) * 0.2;
+            } else if (sphereCharacter && currentCharacter === sphereCharacter) {
+                // Sphere-specific animation - gentle wobble
+                const sphereBody = currentCharacter.body;
+                sphereBody.rotation.y = time * 0.5;
+                sphereBody.position.y = 1.8 + Math.sin(time * 2) * 0.1;
+            }
+
+            // Apply morph deformations if enabled (works for any character)
+            if (morphEnabled) {
+                morphableParts.forEach((mesh, index) => {
+                    applyMorph(mesh, time * (1 + index * 0.1), 0.8);
+                });
+            }
+
+            // Animate chaotic birds
+            animateBirds(time, deltaTime);
+
+            // Process bird collisions
+            processBirdCollisions();
+
+            // Animate orbiting orb
+            animateOrbitOrb(time);
+
+            // Apply float physics
+            applyFloatPhysics(deltaTime);
+
+            // Continuous material addition while holding mouse
+            processContinuousAddMaterial();
+
+            // Apply click impacts
+            if (impacts.length > 0) {
+                morphableParts.forEach(mesh => applyImpacts(mesh, deltaTime));
+                cleanupImpacts();
+            }
 
             // Update CubeCamera for reflections only in realtime mode
             if (useRealtimeReflections) {
-                body.visible = false;
+                // Position cube camera at character's body location for accurate reflections
+                if (currentCharacter.body) {
+                    currentCharacter.body.getWorldPosition(cubeCamera.position);
+                }
+                currentCharacter.body.visible = false;
                 cubeCamera.update(renderer, scene);
-                body.visible = true;
+                currentCharacter.body.visible = true;
+
+                // Update orb's own cube camera if in "own" mode
+                if (orbitOrbMode === 'own') {
+                    orbCubeCamera.position.copy(orbitOrb.position);
+                    orbitOrb.visible = false;
+                    orbCubeCamera.update(renderer, scene);
+                    orbitOrb.visible = true;
+                }
             }
 
             controls.update();
@@ -897,43 +1956,83 @@
             if (useRealtimeReflections) {
                 mirrorMaterial.envMap = cubeRenderTarget.texture;
                 mirrorMaterial.envMapIntensity = 1.5;
+                orbMirrorMaterial.envMap = orbCubeRenderTarget.texture;
+                orbMirrorMaterial.envMapIntensity = 1.5;
+                bubbleMaterial.envMap = cubeRenderTarget.texture;
             } else {
                 mirrorMaterial.envMap = gradientEnvMap;
                 mirrorMaterial.envMapIntensity = 1.0;
+                orbMirrorMaterial.envMap = gradientEnvMap;
+                orbMirrorMaterial.envMapIntensity = 1.0;
+                bubbleMaterial.envMap = gradientEnvMap;
             }
             mirrorMaterial.needsUpdate = true;
+            orbMirrorMaterial.needsUpdate = true;
+            bubbleMaterial.needsUpdate = true;
         });
 
-        // Track all panda parts with their original materials
-        const pandaParts = [
-            { mesh: head, original: whiteFurMaterial },
-            { mesh: leftEar, original: blackFurMaterial },
-            { mesh: rightEar, original: blackFurMaterial },
-            { mesh: leftEyePatch, original: blackFurMaterial },
-            { mesh: rightEyePatch, original: blackFurMaterial },
-            { mesh: muzzle, original: whiteFurMaterial },
-            { mesh: nose, original: noseMaterial },
-            { mesh: leftCheek, original: cheekMaterial },
-            { mesh: rightCheek, original: cheekMaterial },
-            { mesh: leftArm, original: blackFurMaterial },
-            { mesh: rightArm, original: blackFurMaterial },
-            { mesh: leftPaw, original: blackFurMaterial },
-            { mesh: rightPaw, original: blackFurMaterial },
-            { mesh: leftLeg, original: blackFurMaterial },
-            { mesh: rightLeg, original: blackFurMaterial },
-            { mesh: leftFoot, original: blackFurMaterial },
-            { mesh: rightFoot, original: blackFurMaterial },
-            { mesh: tail, original: whiteFurMaterial },
-            { mesh: chestPatch, original: blackFurMaterial },
-        ];
+        // Character selection
+        document.getElementById('characterSelect').addEventListener('change', (e) => {
+            switchCharacter(e.target.value);
+        });
 
         // Mirror parts toggle
         document.getElementById('mirrorParts').addEventListener('change', (e) => {
-            const allMirror = (e.target.value === 'all');
+            applyMirrorSetting(e.target.value);
+        });
 
-            pandaParts.forEach(part => {
-                part.mesh.material = allMirror ? mirrorMaterial : part.original;
-            });
+        // Morph toggle
+        document.getElementById('morphToggle').addEventListener('change', (e) => {
+            morphEnabled = e.target.checked;
+
+            // Reset all meshes to original positions when turning off
+            if (!morphEnabled) {
+                morphableParts.forEach(mesh => resetMorph(mesh));
+            }
+        });
+
+        // Add Material toggle
+        document.getElementById('addMaterialToggle').addEventListener('change', (e) => {
+            addMaterialMode = e.target.checked;
+            // Change cursor to indicate mode
+            renderer.domElement.style.cursor = addMaterialMode ? 'crosshair' : 'grab';
+        });
+
+        // Birds toggle
+        document.getElementById('birdsToggle').addEventListener('change', (e) => {
+            birdsEnabled = e.target.checked;
+            birdsGroup.visible = birdsEnabled;
+        });
+
+        // Orbiting orb mode select
+        document.getElementById('orbitOrbSelect').addEventListener('change', (e) => {
+            orbitOrbMode = e.target.value;
+            orbitOrb.visible = (orbitOrbMode !== 'none');
+
+            // Switch material based on mode
+            if (orbitOrbMode === 'own') {
+                orbitOrb.material = orbMirrorMaterial;
+            } else if (orbitOrbMode === 'bubble') {
+                orbitOrb.material = bubbleMaterial;
+            } else {
+                orbitOrb.material = mirrorMaterial;
+            }
+        });
+
+        // Float mode toggle
+        document.getElementById('floatModeToggle').addEventListener('change', (e) => {
+            floatModeEnabled = e.target.checked;
+            // Reset character position and velocity when disabling
+            if (!floatModeEnabled) {
+                currentCharacter.group.position.y = groundLevel;
+                currentCharacter.group.rotation.x = 0;
+                characterVelocityY = 0;
+            }
+        });
+
+        // Bird collision toggle
+        document.getElementById('birdCollisionToggle').addEventListener('change', (e) => {
+            birdCollisionEnabled = e.target.checked;
         });
 
         window.addEventListener('resize', () => {
