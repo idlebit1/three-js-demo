@@ -1,0 +1,946 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nintendo Style Panda</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { overflow: hidden; }
+        canvas { display: block; }
+        #info {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            color: white;
+            font-family: 'Segoe UI', Arial, sans-serif;
+            font-size: 14px;
+            text-shadow: 1px 1px 2px rgba(0,0,0,0.5);
+        }
+        #controls {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            font-family: 'Segoe UI', Arial, sans-serif;
+        }
+        #controls select {
+            padding: 8px 16px;
+            font-size: 14px;
+            border: none;
+            border-radius: 8px;
+            background: rgba(255,255,255,0.9);
+            cursor: pointer;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+        }
+        #controls select:hover {
+            background: white;
+        }
+        #controls label {
+            display: block;
+            margin-bottom: 6px;
+            color: white;
+            font-size: 12px;
+            text-shadow: 1px 1px 2px rgba(0,0,0,0.5);
+        }
+    </style>
+</head>
+<body>
+    <div id="info">🐼 Nintendo Style Panda<br><small>Drag to rotate • Scroll to zoom</small></div>
+    <div id="controls">
+        <label>Reflection Mode</label>
+        <select id="reflectionMode">
+            <option value="realtime">Crisp (Real-time)</option>
+            <option value="gradient">Soft (Gradient)</option>
+        </select>
+        <label style="margin-top: 12px;">Mirror Parts</label>
+        <select id="mirrorParts">
+            <option value="body">Body Only</option>
+            <option value="all">All Parts</option>
+        </select>
+    </div>
+
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+            "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+        }
+    }
+    </script>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
+        import { RGBELoader } from 'three/addons/loaders/RGBELoader.js';
+
+        // Scene setup
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x87ceeb);
+
+        // Generate gradient environment for soft reflections
+        function createGradientEnvironment() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 1024;
+            canvas.height = 1024;
+            const ctx = canvas.getContext('2d');
+
+            const gradient = ctx.createLinearGradient(0, 0, 0, 1024);
+            gradient.addColorStop(0, '#1e90ff');
+            gradient.addColorStop(0.35, '#87ceeb');
+            gradient.addColorStop(0.5, '#ffffff');
+            gradient.addColorStop(0.65, '#90ee90');
+            gradient.addColorStop(1, '#228b22');
+
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, 1024, 1024);
+
+            // Add clouds
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
+            for (let i = 0; i < 30; i++) {
+                const x = Math.random() * 1024;
+                const y = Math.random() * 350;
+                const r = 30 + Math.random() * 60;
+                ctx.beginPath();
+                ctx.arc(x, y, r, 0, Math.PI * 2);
+                ctx.fill();
+            }
+
+            const texture = new THREE.CanvasTexture(canvas);
+            texture.mapping = THREE.EquirectangularReflectionMapping;
+            return texture;
+        }
+
+        const gradientEnvMap = createGradientEnvironment();
+
+        // Reflection mode state
+        let useRealtimeReflections = true;
+
+        const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.position.set(0, 2, 8);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        renderer.toneMapping = THREE.ACESFilmicToneMapping;
+        renderer.toneMappingExposure = 1.2;
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        document.body.appendChild(renderer.domElement);
+
+        const controls = new OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.05;
+        controls.minDistance = 4;
+        controls.maxDistance = 15;
+        controls.target.set(0, 1.5, 0);
+
+        // Lighting - attached to camera so it follows the view
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
+        scene.add(ambientLight);
+
+        // Add camera to scene so its child lights are rendered
+        scene.add(camera);
+
+        // Key light - front right, attached to camera
+        const keyLight = new THREE.DirectionalLight(0xfff5e6, 1.5);
+        keyLight.position.set(3, 5, 2);
+        keyLight.castShadow = true;
+        keyLight.shadow.mapSize.width = 2048;
+        keyLight.shadow.mapSize.height = 2048;
+        keyLight.shadow.camera.near = 0.5;
+        keyLight.shadow.camera.far = 50;
+        keyLight.shadow.camera.left = -10;
+        keyLight.shadow.camera.right = 10;
+        keyLight.shadow.camera.top = 10;
+        keyLight.shadow.camera.bottom = -10;
+        camera.add(keyLight);
+
+        // Fill light - left side, attached to camera
+        const fillLight = new THREE.DirectionalLight(0x8ec8ff, 0.6);
+        fillLight.position.set(-4, 3, 1);
+        camera.add(fillLight);
+
+        // Rim light - behind, attached to camera
+        const rimLight = new THREE.DirectionalLight(0xffddaa, 0.8);
+        rimLight.position.set(0, 2, -5);
+        camera.add(rimLight);
+
+        // ============================================
+        // CUSTOM MESH CREATION UTILITIES
+        // ============================================
+
+        // Smooth a geometry by merging vertices and recomputing normals
+        function smoothGeometry(geometry) {
+            geometry = mergeVertices(geometry);
+            geometry.computeVertexNormals();
+            return geometry;
+        }
+
+        // Create a smooth mesh from control points using Catmull-Rom subdivision
+        function createSmoothMesh(profile, segments, radialSegments, material) {
+            const points = [];
+
+            // Catmull-Rom interpolation for smooth curves
+            for (let i = 0; i < profile.length - 1; i++) {
+                const p0 = profile[Math.max(0, i - 1)];
+                const p1 = profile[i];
+                const p2 = profile[Math.min(profile.length - 1, i + 1)];
+                const p3 = profile[Math.min(profile.length - 1, i + 2)];
+
+                for (let t = 0; t < segments; t++) {
+                    const s = t / segments;
+                    const tt = s * s;
+                    const ttt = tt * s;
+
+                    const q0 = -ttt + 2*tt - s;
+                    const q1 = 3*ttt - 5*tt + 2;
+                    const q2 = -3*ttt + 4*tt + s;
+                    const q3 = ttt - tt;
+
+                    points.push(new THREE.Vector2(
+                        0.5 * (p0.x*q0 + p1.x*q1 + p2.x*q2 + p3.x*q3),
+                        0.5 * (p0.y*q0 + p1.y*q1 + p2.y*q2 + p3.y*q3)
+                    ));
+                }
+            }
+            points.push(profile[profile.length - 1]);
+
+            const geometry = new THREE.LatheGeometry(points, radialSegments);
+            return new THREE.Mesh(geometry, material);
+        }
+
+        // Create mesh from vertices and indices
+        function createCustomMesh(vertices, indices, material, computeNormals = true) {
+            const geometry = new THREE.BufferGeometry();
+            geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+            geometry.setIndex(indices);
+            if (computeNormals) {
+                geometry.computeVertexNormals();
+            }
+            return new THREE.Mesh(geometry, material);
+        }
+
+        // Subdivide and smooth a mesh
+        function subdivideMesh(geometry, iterations = 1) {
+            for (let iter = 0; iter < iterations; iter++) {
+                const positions = geometry.attributes.position.array;
+                const indices = geometry.index ? Array.from(geometry.index.array) : null;
+
+                if (!indices) continue;
+
+                const newPositions = [...positions];
+                const newIndices = [];
+                const edgeMidpoints = new Map();
+
+                function getEdgeKey(i1, i2) {
+                    return i1 < i2 ? `${i1}_${i2}` : `${i2}_${i1}`;
+                }
+
+                function getMidpoint(i1, i2) {
+                    const key = getEdgeKey(i1, i2);
+                    if (edgeMidpoints.has(key)) {
+                        return edgeMidpoints.get(key);
+                    }
+
+                    const newIndex = newPositions.length / 3;
+                    newPositions.push(
+                        (positions[i1*3] + positions[i2*3]) / 2,
+                        (positions[i1*3+1] + positions[i2*3+1]) / 2,
+                        (positions[i1*3+2] + positions[i2*3+2]) / 2
+                    );
+                    edgeMidpoints.set(key, newIndex);
+                    return newIndex;
+                }
+
+                for (let i = 0; i < indices.length; i += 3) {
+                    const a = indices[i];
+                    const b = indices[i+1];
+                    const c = indices[i+2];
+
+                    const ab = getMidpoint(a, b);
+                    const bc = getMidpoint(b, c);
+                    const ca = getMidpoint(c, a);
+
+                    newIndices.push(a, ab, ca);
+                    newIndices.push(b, bc, ab);
+                    newIndices.push(c, ca, bc);
+                    newIndices.push(ab, bc, ca);
+                }
+
+                geometry.setAttribute('position', new THREE.Float32BufferAttribute(newPositions, 3));
+                geometry.setIndex(newIndices);
+            }
+
+            geometry.computeVertexNormals();
+            return geometry;
+        }
+
+        // ============================================
+        // PANDA MESH CREATION
+        // ============================================
+
+        // Materials
+        const whiteFurMaterial = new THREE.MeshStandardMaterial({
+            color: 0xf5f5f5,
+            roughness: 0.7,
+            metalness: 0.0,
+        });
+
+        // CubeCamera for real-time reflections
+        const cubeRenderTarget = new THREE.WebGLCubeRenderTarget(512, {
+            format: THREE.RGBAFormat,
+            generateMipmaps: true,
+            minFilter: THREE.LinearMipmapLinearFilter,
+        });
+        const cubeCamera = new THREE.CubeCamera(0.1, 100, cubeRenderTarget);
+        cubeCamera.position.set(0, 1.5, 0);
+        scene.add(cubeCamera);
+
+        // Mirror material for body - uses CubeCamera for crisp reflections
+        const mirrorMaterial = new THREE.MeshStandardMaterial({
+            color: 0xffffff,
+            roughness: 0.0,
+            metalness: 1.0,
+            envMap: cubeRenderTarget.texture,
+            envMapIntensity: 1.5,
+        });
+
+        const blackFurMaterial = new THREE.MeshStandardMaterial({
+            color: 0x1a1a1a,
+            roughness: 0.8,
+            metalness: 0.0,
+        });
+
+        const noseMaterial = new THREE.MeshStandardMaterial({
+            color: 0x111111,
+            roughness: 0.3,
+            metalness: 0.1,
+        });
+
+        const eyeMaterial = new THREE.MeshStandardMaterial({
+            color: 0x000000,
+            roughness: 0.0,
+            metalness: 0.3,
+        });
+
+        const eyeHighlightMaterial = new THREE.MeshBasicMaterial({
+            color: 0xffffff,
+        });
+
+        const cheekMaterial = new THREE.MeshStandardMaterial({
+            color: 0xffb6c1,
+            roughness: 0.9,
+            metalness: 0.0,
+            transparent: true,
+            opacity: 0.6,
+        });
+
+        const panda = new THREE.Group();
+
+        // ============================================
+        // BODY - Custom lathe mesh with panda body profile
+        // ============================================
+        const bodyProfile = [
+            new THREE.Vector2(0, 0),        // bottom
+            new THREE.Vector2(0.3, 0.1),
+            new THREE.Vector2(0.7, 0.3),
+            new THREE.Vector2(1.0, 0.6),
+            new THREE.Vector2(1.15, 1.0),
+            new THREE.Vector2(1.2, 1.4),    // widest part (belly)
+            new THREE.Vector2(1.15, 1.8),
+            new THREE.Vector2(1.0, 2.1),
+            new THREE.Vector2(0.7, 2.3),
+            new THREE.Vector2(0.3, 2.4),
+            new THREE.Vector2(0, 2.45),     // top (connects to head)
+        ];
+
+        const body = createSmoothMesh(bodyProfile, 8, 32, mirrorMaterial);
+        body.castShadow = true;
+        body.receiveShadow = true;
+        panda.add(body);
+
+        // Black chest patch - using custom deformed geometry
+        const chestPatchProfile = [
+            new THREE.Vector2(0, 0.6),
+            new THREE.Vector2(0.5, 0.65),
+            new THREE.Vector2(0.85, 0.8),
+            new THREE.Vector2(0.95, 1.2),
+            new THREE.Vector2(0.85, 1.6),
+            new THREE.Vector2(0.5, 1.75),
+            new THREE.Vector2(0, 1.8),
+        ];
+
+        const chestPatch = createSmoothMesh(chestPatchProfile, 6, 32, blackFurMaterial);
+        chestPatch.scale.set(1.05, 1, 0.3);
+        chestPatch.position.z = -0.7;
+        chestPatch.rotation.x = Math.PI;
+        panda.add(chestPatch);
+
+        // ============================================
+        // HEAD - Custom mesh using icosahedron subdivision
+        // ============================================
+        let headGeometry = new THREE.IcosahedronGeometry(1, 4);
+
+        // Deform to panda head shape (wider, flatter)
+        const headPositions = headGeometry.attributes.position.array;
+        for (let i = 0; i < headPositions.length; i += 3) {
+            let x = headPositions[i];
+            let y = headPositions[i + 1];
+            let z = headPositions[i + 2];
+
+            // Widen horizontally
+            x *= 1.15;
+            // Flatten slightly vertically
+            y *= 0.95;
+            // Push forward the front face (muzzle area)
+            if (z > 0.3) {
+                z *= 1.1 + (z * 0.15);
+                // Lower muzzle area
+                if (y < 0) {
+                    z *= 1.15;
+                    y *= 0.9;
+                }
+            }
+
+            headPositions[i] = x;
+            headPositions[i + 1] = y;
+            headPositions[i + 2] = z;
+        }
+        headGeometry = smoothGeometry(headGeometry);
+
+        const head = new THREE.Mesh(headGeometry, whiteFurMaterial);
+        head.position.y = 3.3;
+        head.scale.set(1, 1, 0.95);
+        head.castShadow = true;
+        head.receiveShadow = true;
+        panda.add(head);
+
+        // ============================================
+        // EARS - Custom mesh from deformed spheres
+        // ============================================
+        function createEar() {
+            let earGeometry = new THREE.IcosahedronGeometry(0.35, 3);
+            const positions = earGeometry.attributes.position.array;
+
+            for (let i = 0; i < positions.length; i += 3) {
+                let x = positions[i];
+                let y = positions[i + 1];
+                let z = positions[i + 2];
+
+                // Flatten and make more ear-shaped
+                z *= 0.6;
+                y *= 1.1;
+
+                positions[i] = x;
+                positions[i + 1] = y;
+                positions[i + 2] = z;
+            }
+            earGeometry = smoothGeometry(earGeometry);
+
+            return new THREE.Mesh(earGeometry, blackFurMaterial);
+        }
+
+        const leftEar = createEar();
+        leftEar.position.set(-0.75, 4.1, 0);
+        leftEar.rotation.z = 0.2;
+        leftEar.castShadow = true;
+        panda.add(leftEar);
+
+        const rightEar = createEar();
+        rightEar.position.set(0.75, 4.1, 0);
+        rightEar.rotation.z = -0.2;
+        rightEar.castShadow = true;
+        panda.add(rightEar);
+
+        // ============================================
+        // EYE PATCHES - Custom curved mesh
+        // ============================================
+        function createEyePatch(isLeft) {
+            let geometry = new THREE.IcosahedronGeometry(0.4, 3);
+            const positions = geometry.attributes.position.array;
+
+            for (let i = 0; i < positions.length; i += 3) {
+                let x = positions[i];
+                let y = positions[i + 1];
+                let z = positions[i + 2];
+
+                // Elongate diagonally and flatten
+                const angle = isLeft ? 0.4 : -0.4;
+                const cos = Math.cos(angle);
+                const sin = Math.sin(angle);
+                const newX = x * cos - y * sin;
+                const newY = x * sin + y * cos;
+
+                x = newX * 1.3;
+                y = newY * 1.5;
+                z *= 0.4;
+
+                // Curve to fit head
+                if (z > 0) {
+                    z += 0.15;
+                }
+
+                positions[i] = x;
+                positions[i + 1] = y;
+                positions[i + 2] = z;
+            }
+            geometry = smoothGeometry(geometry);
+
+            return new THREE.Mesh(geometry, blackFurMaterial);
+        }
+
+        const leftEyePatch = createEyePatch(true);
+        leftEyePatch.position.set(-0.45, 3.35, 0.75);
+        panda.add(leftEyePatch);
+
+        const rightEyePatch = createEyePatch(false);
+        rightEyePatch.position.set(0.45, 3.35, 0.75);
+        panda.add(rightEyePatch);
+
+        // ============================================
+        // EYES - Detailed mesh with multiple layers
+        // ============================================
+        function createEye(isLeft) {
+            const eyeGroup = new THREE.Group();
+
+            // Eyeball
+            let eyeGeometry = new THREE.IcosahedronGeometry(0.18, 3);
+            eyeGeometry = smoothGeometry(eyeGeometry);
+            const eye = new THREE.Mesh(eyeGeometry, eyeMaterial);
+            eyeGroup.add(eye);
+
+            // Highlight (upper)
+            let highlightGeometry = new THREE.IcosahedronGeometry(0.05, 2);
+            highlightGeometry = smoothGeometry(highlightGeometry);
+            const highlight = new THREE.Mesh(highlightGeometry, eyeHighlightMaterial);
+            highlight.position.set(isLeft ? -0.05 : 0.05, 0.06, 0.14);
+            eyeGroup.add(highlight);
+
+            // Highlight (lower, smaller)
+            let highlight2Geometry = new THREE.IcosahedronGeometry(0.025, 2);
+            highlight2Geometry = smoothGeometry(highlight2Geometry);
+            const highlight2 = new THREE.Mesh(highlight2Geometry, eyeHighlightMaterial);
+            highlight2.position.set(isLeft ? 0.03 : -0.03, -0.04, 0.15);
+            eyeGroup.add(highlight2);
+
+            return eyeGroup;
+        }
+
+        const leftEye = createEye(true);
+        leftEye.position.set(-0.4, 3.4, 1.0);
+        panda.add(leftEye);
+
+        const rightEye = createEye(false);
+        rightEye.position.set(0.4, 3.4, 1.0);
+        panda.add(rightEye);
+
+        // ============================================
+        // SNOUT/MUZZLE - Custom organic mesh
+        // ============================================
+        let muzzleGeometry = new THREE.IcosahedronGeometry(0.45, 3);
+        const muzzlePositions = muzzleGeometry.attributes.position.array;
+
+        for (let i = 0; i < muzzlePositions.length; i += 3) {
+            let x = muzzlePositions[i];
+            let y = muzzlePositions[i + 1];
+            let z = muzzlePositions[i + 2];
+
+            // Widen and flatten
+            x *= 1.3;
+            y *= 0.7;
+
+            // Extend forward
+            if (z > 0) {
+                z *= 1.2;
+            }
+
+            muzzlePositions[i] = x;
+            muzzlePositions[i + 1] = y;
+            muzzlePositions[i + 2] = z;
+        }
+        muzzleGeometry = smoothGeometry(muzzleGeometry);
+
+        const muzzle = new THREE.Mesh(muzzleGeometry, whiteFurMaterial);
+        muzzle.position.set(0, 3.0, 0.9);
+        muzzle.castShadow = true;
+        panda.add(muzzle);
+
+        // Nose
+        let noseGeometry = new THREE.IcosahedronGeometry(0.12, 3);
+        const nosePositions = noseGeometry.attributes.position.array;
+        for (let i = 0; i < nosePositions.length; i += 3) {
+            nosePositions[i] *= 1.4;  // wider
+            nosePositions[i + 1] *= 0.7;  // flatter
+        }
+        noseGeometry = smoothGeometry(noseGeometry);
+
+        const nose = new THREE.Mesh(noseGeometry, noseMaterial);
+        nose.position.set(0, 3.1, 1.35);
+        panda.add(nose);
+
+        // ============================================
+        // CHEEKS - Nintendo style blush
+        // ============================================
+        function createCheek() {
+            let cheekGeometry = new THREE.IcosahedronGeometry(0.18, 3);
+            const positions = cheekGeometry.attributes.position.array;
+
+            for (let i = 0; i < positions.length; i += 3) {
+                positions[i] *= 1.3;
+                positions[i + 1] *= 0.7;
+                positions[i + 2] *= 0.3;
+            }
+            cheekGeometry = smoothGeometry(cheekGeometry);
+
+            return new THREE.Mesh(cheekGeometry, cheekMaterial);
+        }
+
+        const leftCheek = createCheek();
+        leftCheek.position.set(-0.75, 3.05, 0.85);
+        panda.add(leftCheek);
+
+        const rightCheek = createCheek();
+        rightCheek.position.set(0.75, 3.05, 0.85);
+        panda.add(rightCheek);
+
+        // ============================================
+        // ARMS - Custom organic limb mesh
+        // ============================================
+        function createArm() {
+            const armProfile = [
+                new THREE.Vector2(0, 0),
+                new THREE.Vector2(0.25, 0.1),
+                new THREE.Vector2(0.32, 0.3),
+                new THREE.Vector2(0.35, 0.5),
+                new THREE.Vector2(0.33, 0.7),
+                new THREE.Vector2(0.28, 0.85),
+                new THREE.Vector2(0.2, 0.95),
+                new THREE.Vector2(0, 1.0),
+            ];
+
+            return createSmoothMesh(armProfile, 6, 16, blackFurMaterial);
+        }
+
+        const leftArm = createArm();
+        leftArm.position.set(-1.15, 1.2, 0.2);
+        leftArm.rotation.z = 0.7;
+        leftArm.rotation.x = -0.4;
+        leftArm.scale.set(1, 1.2, 1);
+        leftArm.castShadow = true;
+        panda.add(leftArm);
+
+        const rightArm = createArm();
+        rightArm.position.set(1.15, 1.2, 0.2);
+        rightArm.rotation.z = -0.7;
+        rightArm.rotation.x = -0.4;
+        rightArm.scale.set(1, 1.2, 1);
+        rightArm.castShadow = true;
+        panda.add(rightArm);
+
+        // Paws (hands)
+        function createPaw() {
+            let pawGeometry = new THREE.IcosahedronGeometry(0.22, 3);
+            const positions = pawGeometry.attributes.position.array;
+
+            for (let i = 0; i < positions.length; i += 3) {
+                positions[i] *= 1.1;
+                positions[i + 1] *= 0.8;
+                positions[i + 2] *= 1.2;
+            }
+            pawGeometry = smoothGeometry(pawGeometry);
+
+            return new THREE.Mesh(pawGeometry, blackFurMaterial);
+        }
+
+        const leftPaw = createPaw();
+        leftPaw.position.set(-1.5, 2.05, 0.55);
+        leftPaw.castShadow = true;
+        panda.add(leftPaw);
+
+        const rightPaw = createPaw();
+        rightPaw.position.set(1.5, 2.05, 0.55);
+        rightPaw.castShadow = true;
+        panda.add(rightPaw);
+
+        // ============================================
+        // LEGS - Chunky panda legs
+        // ============================================
+        function createLeg() {
+            const legProfile = [
+                new THREE.Vector2(0, 0),
+                new THREE.Vector2(0.3, 0.05),
+                new THREE.Vector2(0.38, 0.15),
+                new THREE.Vector2(0.4, 0.3),
+                new THREE.Vector2(0.38, 0.5),
+                new THREE.Vector2(0.35, 0.7),
+                new THREE.Vector2(0.3, 0.85),
+                new THREE.Vector2(0.2, 0.95),
+                new THREE.Vector2(0, 1.0),
+            ];
+
+            return createSmoothMesh(legProfile, 6, 16, blackFurMaterial);
+        }
+
+        const leftLeg = createLeg();
+        leftLeg.position.set(-0.55, 0, 0.15);
+        leftLeg.rotation.x = -0.15;
+        leftLeg.scale.set(1, 0.7, 1);
+        leftLeg.castShadow = true;
+        panda.add(leftLeg);
+
+        const rightLeg = createLeg();
+        rightLeg.position.set(0.55, 0, 0.15);
+        rightLeg.rotation.x = -0.15;
+        rightLeg.scale.set(1, 0.7, 1);
+        rightLeg.castShadow = true;
+        panda.add(rightLeg);
+
+        // Feet
+        function createFoot() {
+            let footGeometry = new THREE.IcosahedronGeometry(0.28, 3);
+            const positions = footGeometry.attributes.position.array;
+
+            for (let i = 0; i < positions.length; i += 3) {
+                positions[i] *= 1.0;
+                positions[i + 1] *= 0.6;
+                positions[i + 2] *= 1.4;
+            }
+            footGeometry = smoothGeometry(footGeometry);
+
+            return new THREE.Mesh(footGeometry, blackFurMaterial);
+        }
+
+        const leftFoot = createFoot();
+        leftFoot.position.set(-0.55, 0.1, 0.5);
+        leftFoot.castShadow = true;
+        panda.add(leftFoot);
+
+        const rightFoot = createFoot();
+        rightFoot.position.set(0.55, 0.1, 0.5);
+        rightFoot.castShadow = true;
+        panda.add(rightFoot);
+
+        // ============================================
+        // TAIL - Small fluffy tail
+        // ============================================
+        let tailGeometry = new THREE.IcosahedronGeometry(0.15, 3);
+        tailGeometry = smoothGeometry(tailGeometry);
+        const tail = new THREE.Mesh(tailGeometry, whiteFurMaterial);
+        tail.position.set(0, 0.8, -1.1);
+        tail.scale.set(1, 0.8, 0.8);
+        panda.add(tail);
+
+        // Position panda
+        panda.position.y = 0;
+        scene.add(panda);
+
+        // ============================================
+        // GROUND - Custom organic platform
+        // ============================================
+        const groundProfile = [
+            new THREE.Vector2(0, -0.3),
+            new THREE.Vector2(2.8, -0.25),
+            new THREE.Vector2(3.0, -0.1),
+            new THREE.Vector2(3.1, 0),
+            new THREE.Vector2(3.0, 0.1),
+            new THREE.Vector2(2.5, 0.15),
+            new THREE.Vector2(0, 0.18),
+        ];
+
+        const groundMaterial = new THREE.MeshStandardMaterial({
+            color: 0x7ec850,
+            roughness: 0.9,
+            metalness: 0.0,
+        });
+
+        const ground = createSmoothMesh(groundProfile, 6, 48, groundMaterial);
+        ground.position.y = -0.1;
+        ground.receiveShadow = true;
+        scene.add(ground);
+
+        // ============================================
+        // BAMBOO - Procedural bamboo stalks
+        // ============================================
+        function createBamboo(x, z, height) {
+            const bambooGroup = new THREE.Group();
+            const segments = Math.floor(height / 0.6);
+
+            const stalkMaterial = new THREE.MeshStandardMaterial({
+                color: 0x4a7c23,
+                roughness: 0.6,
+                metalness: 0.1,
+            });
+
+            // Create bamboo stalk as single mesh
+            const stalkProfile = [];
+            for (let i = 0; i <= segments; i++) {
+                const y = i * 0.6;
+                const r = 0.06 + Math.sin(i * Math.PI / segments) * 0.01;
+                stalkProfile.push(new THREE.Vector2(r, y));
+
+                // Add node bulge
+                if (i < segments) {
+                    stalkProfile.push(new THREE.Vector2(r + 0.015, y + 0.55));
+                    stalkProfile.push(new THREE.Vector2(r + 0.02, y + 0.58));
+                    stalkProfile.push(new THREE.Vector2(r + 0.015, y + 0.6));
+                }
+            }
+
+            const stalkGeometry = new THREE.LatheGeometry(stalkProfile, 12);
+            const stalk = new THREE.Mesh(stalkGeometry, stalkMaterial);
+            stalk.castShadow = true;
+            bambooGroup.add(stalk);
+
+            // Leaves
+            const leafMaterial = new THREE.MeshStandardMaterial({
+                color: 0x5a9c2e,
+                roughness: 0.8,
+                side: THREE.DoubleSide,
+            });
+
+            for (let i = 0; i < 4; i++) {
+                const leafGeometry = new THREE.BufferGeometry();
+                const leafVerts = [
+                    0, 0, 0,
+                    0.05, 0.2, 0.02,
+                    0.02, 0.4, 0,
+                    -0.02, 0.4, 0,
+                    -0.05, 0.2, -0.02,
+                ];
+                const leafIndices = [0, 1, 2, 0, 2, 3, 0, 3, 4, 0, 4, 1];
+                leafGeometry.setAttribute('position', new THREE.Float32BufferAttribute(leafVerts, 3));
+                leafGeometry.setIndex(leafIndices);
+                leafGeometry.computeVertexNormals();
+
+                const leaf = new THREE.Mesh(leafGeometry, leafMaterial);
+                leaf.position.y = height - 0.2 + i * 0.15;
+                leaf.rotation.y = (i / 4) * Math.PI * 2 + Math.random() * 0.5;
+                leaf.rotation.z = 0.3 + Math.random() * 0.3;
+                leaf.scale.set(1 + Math.random() * 0.5, 1 + Math.random() * 0.3, 1);
+                bambooGroup.add(leaf);
+            }
+
+            bambooGroup.position.set(x, 0, z);
+            return bambooGroup;
+        }
+
+        scene.add(createBamboo(-2.5, -1, 3.5));
+        scene.add(createBamboo(-2.2, -1.5, 4));
+        scene.add(createBamboo(-2.7, -0.5, 3));
+        scene.add(createBamboo(2.5, -0.8, 3.8));
+        scene.add(createBamboo(2.3, -1.3, 3.2));
+        scene.add(createBamboo(2.6, -0.3, 4.2));
+
+        // ============================================
+        // ANIMATION
+        // ============================================
+        let time = 0;
+
+        function animate() {
+            requestAnimationFrame(animate);
+            time += 0.016;
+
+            // Breathing
+            const breathe = Math.sin(time * 2) * 0.015;
+            body.scale.x = 1 + breathe;
+            body.scale.z = 1 - breathe * 0.5;
+
+            // Head movement
+            head.position.y = 3.3 + Math.sin(time * 1.5) * 0.02;
+            head.rotation.z = Math.sin(time * 0.8) * 0.015;
+            head.rotation.y = Math.sin(time * 0.5) * 0.02;
+
+            // Sync face with head
+            const headY = head.position.y;
+            muzzle.position.y = headY - 0.3;
+            nose.position.y = headY - 0.2;
+            leftEyePatch.position.y = headY + 0.05;
+            rightEyePatch.position.y = headY + 0.05;
+            leftEye.position.y = headY + 0.1;
+            rightEye.position.y = headY + 0.1;
+            leftCheek.position.y = headY - 0.25;
+            rightCheek.position.y = headY - 0.25;
+
+            // Ear wiggle
+            leftEar.rotation.z = 0.2 + Math.sin(time * 3) * 0.08;
+            rightEar.rotation.z = -0.2 - Math.sin(time * 3) * 0.08;
+            leftEar.position.y = headY + 0.8;
+            rightEar.position.y = headY + 0.8;
+
+            // Arm swing
+            leftArm.rotation.x = -0.4 + Math.sin(time * 1.8) * 0.08;
+            rightArm.rotation.x = -0.4 + Math.sin(time * 1.8 + Math.PI) * 0.08;
+            leftPaw.position.y = 2.05 + Math.sin(time * 1.8) * 0.05;
+            rightPaw.position.y = 2.05 + Math.sin(time * 1.8 + Math.PI) * 0.05;
+
+            // Tail wag
+            tail.rotation.y = Math.sin(time * 4) * 0.2;
+
+            // Update CubeCamera for reflections only in realtime mode
+            if (useRealtimeReflections) {
+                body.visible = false;
+                cubeCamera.update(renderer, scene);
+                body.visible = true;
+            }
+
+            controls.update();
+            renderer.render(scene, camera);
+        }
+
+        animate();
+
+        // Reflection mode toggle
+        document.getElementById('reflectionMode').addEventListener('change', (e) => {
+            useRealtimeReflections = (e.target.value === 'realtime');
+
+            if (useRealtimeReflections) {
+                mirrorMaterial.envMap = cubeRenderTarget.texture;
+                mirrorMaterial.envMapIntensity = 1.5;
+            } else {
+                mirrorMaterial.envMap = gradientEnvMap;
+                mirrorMaterial.envMapIntensity = 1.0;
+            }
+            mirrorMaterial.needsUpdate = true;
+        });
+
+        // Track all panda parts with their original materials
+        const pandaParts = [
+            { mesh: head, original: whiteFurMaterial },
+            { mesh: leftEar, original: blackFurMaterial },
+            { mesh: rightEar, original: blackFurMaterial },
+            { mesh: leftEyePatch, original: blackFurMaterial },
+            { mesh: rightEyePatch, original: blackFurMaterial },
+            { mesh: muzzle, original: whiteFurMaterial },
+            { mesh: nose, original: noseMaterial },
+            { mesh: leftCheek, original: cheekMaterial },
+            { mesh: rightCheek, original: cheekMaterial },
+            { mesh: leftArm, original: blackFurMaterial },
+            { mesh: rightArm, original: blackFurMaterial },
+            { mesh: leftPaw, original: blackFurMaterial },
+            { mesh: rightPaw, original: blackFurMaterial },
+            { mesh: leftLeg, original: blackFurMaterial },
+            { mesh: rightLeg, original: blackFurMaterial },
+            { mesh: leftFoot, original: blackFurMaterial },
+            { mesh: rightFoot, original: blackFurMaterial },
+            { mesh: tail, original: whiteFurMaterial },
+            { mesh: chestPatch, original: blackFurMaterial },
+        ];
+
+        // Mirror parts toggle
+        document.getElementById('mirrorParts').addEventListener('change', (e) => {
+            const allMirror = (e.target.value === 'all');
+
+            pandaParts.forEach(part => {
+                part.mesh.material = allMirror ? mirrorMaterial : part.original;
+            });
+        });
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+    </script>
+</body>
+</html>
