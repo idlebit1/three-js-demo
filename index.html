@@ -22,6 +22,9 @@
             top: 20px;
             right: 20px;
             font-family: 'Segoe UI', Arial, sans-serif;
+            max-height: calc(100vh - 60px);
+            overflow-y: auto;
+            padding-right: 6px;
         }
         #controls select {
             padding: 8px 16px;
@@ -66,7 +69,7 @@
     <button id="toggleControls" onclick="document.getElementById('controls').classList.toggle('hidden'); this.textContent = document.getElementById('controls').classList.contains('hidden') ? 'Show Controls' : 'Hide Controls';">Hide Controls</button>
     <div id="controls" class="visible">
         <label>
-            <input type="checkbox" id="lockCameraToggle" style="margin-right: 6px;">
+            <input type="checkbox" id="lockCameraToggle" checked style="margin-right: 6px;">
             Lock Camera
         </label>
         <label style="margin-top: 6px;">World</label>
@@ -92,7 +95,7 @@
         <label style="margin-top: 12px;">Character</label>
         <select id="characterSelect">
             <option value="panda">Panda</option>
-            <option value="sphere">Sphere</option>
+            <option value="sphere" selected>Sphere</option>
         </select>
         <label style="margin-top: 12px;">Reflection Mode</label>
         <select id="reflectionMode">
@@ -152,7 +155,7 @@
             Sphere Texture
         </label>
         <label style="margin-top: 12px;">
-            <input type="checkbox" id="interactiveToggle" style="margin-right: 6px;">
+            <input type="checkbox" id="interactiveToggle" checked style="margin-right: 6px;">
             Interactive Mode
         </label>
         <label style="margin-top: 12px;">
@@ -9625,6 +9628,14 @@
         document.getElementById('crypticToggle').addEventListener('change', (e) => {
             toggleCrypticScripts(e.target.checked);
         });
+
+        // Apply defaults: lock camera, sphere character, interactive mode
+        controls.enableRotate = false;
+        controls.enableZoom = false;
+        controls.enablePan = false;
+        switchCharacter('sphere');
+        interactiveMode = true;
+        renderer.domElement.style.cursor = 'crosshair';
 
         window.addEventListener('resize', () => {
             camera.aspect = window.innerWidth / window.innerHeight;
