@@ -9664,6 +9664,12 @@
         const snapCtx = snapCanvas.getContext('2d');
 
         function captureSnapshot() {
+            // Force a render so the WebGL buffer has content to capture
+            if (reflectionMode === 'ssr') {
+                composer.render();
+            } else {
+                renderer.render(scene, camera);
+            }
             snapCanvas.width = canvasEl.width;
             snapCanvas.height = canvasEl.height;
             snapCtx.drawImage(canvasEl, 0, 0);
@@ -9729,7 +9735,7 @@
             // Snapshot (old world) slides out in drag direction
             snapCanvas.style.transform = `translateY(${-clampedPx * dragDirection}px)`;
             // Live canvas (new world) follows behind
-            canvasEl.style.transform = `translateY(${(h - clampedPx) * -dragDirection}px)`;
+            canvasEl.style.transform = `translateY(${(h - clampedPx) * dragDirection}px)`;
         }, { passive: true });
 
         canvasEl.addEventListener('touchend', (e) => {
@@ -9763,7 +9769,7 @@
                 snapCanvas.style.transition = `transform ${TRANSITION_MS}ms ease-out`;
                 canvasEl.style.transition = `transform ${TRANSITION_MS}ms ease-out`;
                 snapCanvas.style.transform = 'translateY(0)';
-                canvasEl.style.transform = `translateY(${-h * dragDirection}px)`;
+                canvasEl.style.transform = `translateY(${h * dragDirection}px)`;
 
                 setTimeout(() => {
                     switchWorld(dragOriginalWorld);
