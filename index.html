@@ -6357,12 +6357,15 @@
         // Float mode toggle
         document.getElementById('floatModeToggle').addEventListener('change', (e) => {
             floatModeEnabled = e.target.checked;
-            // Reset character position and velocity when disabling
             if (!floatModeEnabled) {
+                // Reset character position and velocity when disabling
                 currentCharacter.group.position.y = groundLevel;
                 currentCharacter.group.rotation.x = 0;
                 characterVelocityY = 0;
             }
+            // Reset camera to standard position so follow starts smoothly
+            camera.position.set(0, 1.8, 8);
+            controls.target.set(0, 1.8, 0);
         });
 
         // Bird collision toggle
