@@ -9,7 +9,7 @@
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { overflow: hidden; }
-        canvas { display: block; }
+        canvas { display: block; min-width: 390px; min-height: 664px; }
         #info {
             position: absolute;
             top: 20px;
@@ -9797,10 +9797,12 @@
         }, { passive: true });
 
         window.addEventListener('resize', () => {
-            camera.aspect = window.innerWidth / window.innerHeight;
+            const w = Math.max(window.innerWidth, 390);
+            const h = Math.max(window.innerHeight, 664);
+            camera.aspect = w / h;
             camera.updateProjectionMatrix();
-            renderer.setSize(window.innerWidth, window.innerHeight);
-            composer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setSize(w, h);
+            composer.setSize(w, h);
         });
     </script>
 </body>
