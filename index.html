@@ -84,7 +84,8 @@
 </head>
 <body>
     <div id="info">🐼 Nintendo Style Panda<br><small>Drag to rotate • Scroll to zoom</small></div>
-    <button id="fullscreenBtn" onclick="if(!document.fullscreenElement){document.documentElement.requestFullscreen().catch(()=>{})}else{document.exitFullscreen()}">Fullscreen</button>
+    <button id="fullscreenBtn" style="display:none" onclick="if(!document.fullscreenElement){document.documentElement.requestFullscreen().catch(()=>{})}else{document.exitFullscreen()}">Fullscreen</button>
+    <script>if(document.documentElement.requestFullscreen)document.getElementById('fullscreenBtn').style.display='';</script>
     <button id="toggleControls" onclick="document.getElementById('controls').classList.toggle('hidden'); this.textContent = document.getElementById('controls').classList.contains('hidden') ? 'Show Controls' : 'Hide Controls';">Hide Controls</button>
     <div id="controls" class="visible">
         <label>
@@ -5872,9 +5873,6 @@
             // Cooldown check
             const now = performance.now();
             if (now - lastInteractionTime < INTERACTION_COOLDOWN) return;
-            lastInteractionTime = now;
-
-            event.preventDefault();
 
             // Get normalized device coordinates
             const rect = renderer.domElement.getBoundingClientRect();
@@ -5926,6 +5924,9 @@
                         obj.rotation.x === -Math.PI / 2) continue;
                     if (obj === currentCharacter.body) continue;
 
+                    // Only preventDefault after finding a valid hit
+                    event.preventDefault();
+                    lastInteractionTime = now;
                     handleInteraction(intersect);
                     break;
                 }
