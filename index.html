@@ -4482,10 +4482,12 @@
                 targetCameraDistance = 8 + Math.min(charY * 0.12, 25);
 
                 // Smoothly move camera target to character level (faster tracking)
-                controls.target.y += (charY + 1.5 - controls.target.y) * 0.15;
+                const desiredTargetY = charY + 1.8;
+                controls.target.y += (desiredTargetY - controls.target.y) * 0.15;
 
-                // Keep camera at same relative height - stay level with character
-                const desiredCameraY = controls.target.y + 2;
+                // Camera stays at same height as target when grounded, rises above when floating
+                const cameraOffset = Math.min(charY * 0.15, 3);
+                const desiredCameraY = controls.target.y + cameraOffset;
                 camera.position.y += (desiredCameraY - camera.position.y) * 0.12;
 
                 // Adjust horizontal distance smoothly
