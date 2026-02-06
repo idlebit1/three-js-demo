@@ -235,7 +235,7 @@
         let reflectionMode = 'realtime'; // 'realtime', 'gradient', 'ssr'
 
         const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
-        camera.position.set(0, 2, 8);
+        camera.position.set(0, 1.8, 8);
 
         const renderer = new THREE.WebGLRenderer({ antialias: true });
         renderer.setSize(window.innerWidth, window.innerHeight);
@@ -251,7 +251,7 @@
         controls.dampingFactor = 0.05;
         controls.minDistance = 0;
         controls.maxDistance = 30;
-        controls.target.set(0, 1.5, 0);
+        controls.target.set(0, 1.8, 0);
 
         // Lighting - attached to camera so it follows the view
         const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
@@ -7498,7 +7498,7 @@
                 });
                 cameraFollowEnabled = false;
                 controls.maxDistance = 30;
-                controls.target.set(0, 1.5, 0);
+                controls.target.set(0, 1.8, 0);
 
                 // Reset character position
                 currentCharacter.group.position.y = 0;
