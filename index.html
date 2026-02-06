@@ -234,7 +234,17 @@
         // Reflection mode state
         let reflectionMode = 'realtime'; // 'realtime', 'gradient', 'ssr'
 
-        const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+        // Reference: iPhone 12 Pro Safari with URL bar (390x664)
+        const REF_ASPECT = 390 / 664;
+        const REF_VFOV = 45;
+        // Lock horizontal FOV to reference; adjust vertical FOV for taller viewports
+        function getAdjustedFOV(aspect) {
+            if (aspect >= REF_ASPECT) return REF_VFOV;
+            const hFovRad = 2 * Math.atan(REF_ASPECT * Math.tan(REF_VFOV * Math.PI / 360));
+            return 2 * Math.atan(Math.tan(hFovRad / 2) / aspect) * 180 / Math.PI;
+        }
+        const initAspect = window.innerWidth / window.innerHeight;
+        const camera = new THREE.PerspectiveCamera(getAdjustedFOV(initAspect), initAspect, 0.1, 1000);
         camera.position.set(0, 1.8, 8);
 
         const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -9800,6 +9810,7 @@
             const w = Math.max(window.innerWidth, 390);
             const h = Math.max(window.innerHeight, 664);
             camera.aspect = w / h;
+            camera.fov = getAdjustedFOV(w / h);
             camera.updateProjectionMatrix();
             renderer.setSize(w, h);
             composer.setSize(w, h);
