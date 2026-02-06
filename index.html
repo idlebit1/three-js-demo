@@ -5084,6 +5084,10 @@
         function switchScale(scaleName) {
             currentScale = scaleName;
 
+            // Reset camera to standard starting position for both modes
+            camera.position.set(0, 1.8, 8);
+            controls.target.set(0, 1.8, 0);
+
             if (scaleName === 'grand') {
                 // Hide all standard world content
                 for (const pName in pluginRegistry) {
@@ -5109,7 +5113,6 @@
                 });
                 cameraFollowEnabled = false;
                 controls.maxDistance = 30;
-                controls.target.set(0, 1.8, 0);
 
                 // Reset character position
                 currentCharacter.group.position.y = 0;
