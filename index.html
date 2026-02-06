@@ -1114,7 +1114,14 @@
             const cubeGroup = new THREE.Group();
 
             const cubeGeometry = new THREE.BoxGeometry(2.2, 2.2, 2.2);
-            const cubeBody = new THREE.Mesh(cubeGeometry, mirrorMaterial);
+            const cubeMirrorMaterial = new THREE.MeshStandardMaterial({
+                color: 0xffffff,
+                roughness: 0.15,
+                metalness: 1.0,
+                envMap: cubeRenderTarget.texture,
+                envMapIntensity: 1.0,
+            });
+            const cubeBody = new THREE.Mesh(cubeGeometry, cubeMirrorMaterial);
             cubeBody.castShadow = true;
             cubeBody.receiveShadow = true;
             cubeBody.position.y = 1.8;
