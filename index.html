@@ -9643,21 +9643,24 @@
         interactiveMode = true;
         renderer.domElement.style.cursor = 'crosshair';
 
-        // Swipe up/down to change worlds
+        // Swipe up/down to change worlds (TikTok-style slide transition)
         const worldList = ['bamboo', 'lava', 'drift', 'voltage', 'hearth', 'simmer', 'glade', 'abyss', 'melancholy', 'euphoria', 'tension', 'serenity'];
         let swipeStartY = null;
         let swipeStartX = null;
+        let isTransitioning = false;
         const SWIPE_THRESHOLD = 50;
+        const TRANSITION_MS = 300;
+        const canvasEl = renderer.domElement;
 
         renderer.domElement.addEventListener('touchstart', (e) => {
-            if (e.touches.length === 1) {
+            if (e.touches.length === 1 && !isTransitioning) {
                 swipeStartY = e.touches[0].clientY;
                 swipeStartX = e.touches[0].clientX;
             }
         }, { passive: true });
 
         renderer.domElement.addEventListener('touchend', (e) => {
-            if (swipeStartY === null) return;
+            if (swipeStartY === null || isTransitioning) return;
             const touch = e.changedTouches[0];
             const dy = swipeStartY - touch.clientY;
             const dx = Math.abs(swipeStartX - touch.clientX);
@@ -9670,15 +9673,39 @@
             const currentIdx = worldList.indexOf(currentWorld);
             let nextIdx;
             if (dy > 0) {
-                // Swipe up = next world
                 nextIdx = (currentIdx + 1) % worldList.length;
             } else {
-                // Swipe down = previous world
                 nextIdx = (currentIdx - 1 + worldList.length) % worldList.length;
             }
             const nextWorld = worldList[nextIdx];
-            document.getElementById('worldSelect').value = nextWorld;
-            switchWorld(nextWorld);
+            const slideOut = dy > 0 ? '-100%' : '100%';
+            const slideIn = dy > 0 ? '100%' : '-100%';
+
+            // TikTok-style slide transition
+            isTransitioning = true;
+            canvasEl.style.transition = `transform ${TRANSITION_MS}ms ease-in`;
+            canvasEl.style.transform = `translateY(${slideOut})`;
+
+            setTimeout(() => {
+                // Switch world while offscreen
+                switchWorld(nextWorld);
+                document.getElementById('worldSelect').value = nextWorld;
+
+                // Jump to opposite side instantly
+                canvasEl.style.transition = 'none';
+                canvasEl.style.transform = `translateY(${slideIn})`;
+
+                // Force reflow then slide in
+                canvasEl.offsetHeight;
+                canvasEl.style.transition = `transform ${TRANSITION_MS}ms ease-out`;
+                canvasEl.style.transform = 'translateY(0)';
+
+                setTimeout(() => {
+                    isTransitioning = false;
+                    canvasEl.style.transition = '';
+                    canvasEl.style.transform = '';
+                }, TRANSITION_MS);
+            }, TRANSITION_MS);
         }, { passive: true });
 
         window.addEventListener('resize', () => {
