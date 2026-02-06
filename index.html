@@ -63,20 +63,6 @@
             box-shadow: 0 2px 8px rgba(0,0,0,0.2);
         }
         #toggleControls:hover { background: white; }
-        #fullscreenBtn {
-            position: absolute;
-            top: 20px;
-            right: 120px;
-            z-index: 10;
-            padding: 6px 12px;
-            font-size: 12px;
-            font-family: 'Segoe UI', Arial, sans-serif;
-            border: none;
-            border-radius: 8px;
-            background: rgba(255,255,255,0.9);
-            cursor: pointer;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.2);
-        }
         #fullscreenBtn:hover { background: white; }
         #controls.hidden { display: none; }
         #controls.visible { top: 44px; }
@@ -84,10 +70,10 @@
 </head>
 <body>
     <div id="info">🐼 Nintendo Style Panda<br><small>Drag to rotate • Scroll to zoom</small></div>
-    <button id="fullscreenBtn" style="display:none" onclick="if(!document.fullscreenElement){document.documentElement.requestFullscreen().catch(()=>{})}else{document.exitFullscreen()}">Fullscreen</button>
-    <script>if(document.documentElement.requestFullscreen)document.getElementById('fullscreenBtn').style.display='';</script>
-    <button id="toggleControls" onclick="document.getElementById('controls').classList.toggle('hidden'); this.textContent = document.getElementById('controls').classList.contains('hidden') ? 'Show Controls' : 'Hide Controls';">Hide Controls</button>
-    <div id="controls" class="visible">
+    <button id="toggleControls" onclick="document.getElementById('controls').classList.toggle('hidden'); this.textContent = document.getElementById('controls').classList.contains('hidden') ? 'Show Controls' : 'Hide Controls';">Show Controls</button>
+    <div id="controls" class="visible hidden">
+        <button id="fullscreenBtn" style="display:none; width:100%; margin-bottom:8px; padding:8px 16px; font-size:14px; border:none; border-radius:8px; background:rgba(255,255,255,0.9); cursor:pointer; box-shadow:0 2px 8px rgba(0,0,0,0.2);" onclick="if(!document.fullscreenElement){document.documentElement.requestFullscreen().catch(()=>{})}else{document.exitFullscreen()}">Fullscreen</button>
+        <script>if(document.documentElement.requestFullscreen)document.getElementById('fullscreenBtn').style.display='';</script>
         <label>
             <input type="checkbox" id="lockCameraToggle" checked style="margin-right: 6px;">
             Lock Camera
@@ -9656,6 +9642,44 @@
         switchCharacter('sphere');
         interactiveMode = true;
         renderer.domElement.style.cursor = 'crosshair';
+
+        // Swipe up/down to change worlds
+        const worldList = ['bamboo', 'lava', 'drift', 'voltage', 'hearth', 'simmer', 'glade', 'abyss', 'melancholy', 'euphoria', 'tension', 'serenity'];
+        let swipeStartY = null;
+        let swipeStartX = null;
+        const SWIPE_THRESHOLD = 50;
+
+        renderer.domElement.addEventListener('touchstart', (e) => {
+            if (e.touches.length === 1) {
+                swipeStartY = e.touches[0].clientY;
+                swipeStartX = e.touches[0].clientX;
+            }
+        }, { passive: true });
+
+        renderer.domElement.addEventListener('touchend', (e) => {
+            if (swipeStartY === null) return;
+            const touch = e.changedTouches[0];
+            const dy = swipeStartY - touch.clientY;
+            const dx = Math.abs(swipeStartX - touch.clientX);
+            swipeStartY = null;
+            swipeStartX = null;
+
+            // Only trigger if vertical swipe is dominant and exceeds threshold
+            if (Math.abs(dy) < SWIPE_THRESHOLD || dx > Math.abs(dy)) return;
+
+            const currentIdx = worldList.indexOf(currentWorld);
+            let nextIdx;
+            if (dy > 0) {
+                // Swipe up = next world
+                nextIdx = (currentIdx + 1) % worldList.length;
+            } else {
+                // Swipe down = previous world
+                nextIdx = (currentIdx - 1 + worldList.length) % worldList.length;
+            }
+            const nextWorld = worldList[nextIdx];
+            document.getElementById('worldSelect').value = nextWorld;
+            switchWorld(nextWorld);
+        }, { passive: true });
 
         window.addEventListener('resize', () => {
             camera.aspect = window.innerWidth / window.innerHeight;
