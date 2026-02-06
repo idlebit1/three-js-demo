@@ -9665,11 +9665,9 @@
         let dragDirection = 0; // 1 = up, -1 = down
         let dragOriginalWorld = null;
         let dragNextWorld = null;
-        let lastTouchY = 0;
-        let lastTouchTime = 0;
+        let dragStartTime = 0;
         const DRAG_COMMIT_THRESHOLD = 0.25; // 25% of screen height for slow drags
-        const VELOCITY_THRESHOLD = 0.8; // px/ms - above this, commit with less distance
-        const FAST_DRAG_COMMIT = 0.08; // 8% of screen for fast flicks
+        const VELOCITY_THRESHOLD = 0.5; // px/ms - above this, commit regardless of distance
         const TRANSITION_MS = 250;
         const DRAG_INIT_THRESHOLD = 10; // px before drag engages
 
@@ -9710,6 +9708,7 @@
             if (e.touches.length === 1 && !isTransitioning) {
                 dragStartY = e.touches[0].clientY;
                 dragStartX = e.touches[0].clientX;
+                dragStartTime = performance.now();
                 isDragging = false;
                 dragDirection = 0;
             }
@@ -9748,10 +9747,6 @@
             const clampedPx = Math.max(0, dragPx);
             const h = window.innerHeight;
 
-            // Track velocity
-            lastTouchY = touchY;
-            lastTouchTime = performance.now();
-
             // Snapshot (old world) slides out in drag direction
             snapCanvas.style.transform = `translateY(${-clampedPx * dragDirection}px)`;
             // Live canvas (new world) follows behind
@@ -9769,14 +9764,14 @@
             const dragPx = Math.max(0, dy * dragDirection);
             const h = window.innerHeight;
             const progress = dragPx / h;
-            const elapsed = performance.now() - lastTouchTime;
-            const velocity = elapsed > 0 ? Math.abs(touchY - lastTouchY) / elapsed : 0;
-            const threshold = velocity > VELOCITY_THRESHOLD ? FAST_DRAG_COMMIT : DRAG_COMMIT_THRESHOLD;
+            const elapsed = performance.now() - dragStartTime;
+            const velocity = elapsed > 0 ? Math.abs(dy) / elapsed : 0;
+            const shouldCommit = progress > DRAG_COMMIT_THRESHOLD || velocity > VELOCITY_THRESHOLD;
             dragStartY = null;
 
             isTransitioning = true;
 
-            if (progress > threshold) {
+            if (shouldCommit) {
                 // Commit: animate both to final positions
                 snapCanvas.style.transition = `transform ${TRANSITION_MS}ms ease-out`;
                 canvasEl.style.transition = `transform ${TRANSITION_MS}ms ease-out`;
