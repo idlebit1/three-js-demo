@@ -3999,9 +3999,8 @@
 
         // World switching function
         function switchWorld(worldName) {
-            const wasFloat = isFloatWorld();
+            const prevWorld = currentWorld;
             currentWorld = worldName;
-            const nowFloat = isFloatWorld();
 
             // Hide all plugin worlds
             for (const pName in pluginRegistry) {
@@ -4022,13 +4021,15 @@
                 keyLight.intensity = lit.key.intensity;
             }
 
-            // Reset character and camera on every world switch
-            currentCharacter.group.position.y = groundLevel;
-            currentCharacter.group.rotation.x = 0;
-            characterVelocityY = 0;
-            camera.position.set(0, 1.8, 8);
-            controls.target.set(0, 1.8, 0);
-            controls.maxDistance = nowFloat ? 100 : 30;
+            // Reset character and camera only when the world actually changes
+            if (worldName !== prevWorld) {
+                currentCharacter.group.position.y = groundLevel;
+                currentCharacter.group.rotation.x = 0;
+                characterVelocityY = 0;
+                camera.position.set(0, 1.8, 8);
+                controls.target.set(0, 1.8, 0);
+                controls.maxDistance = isFloatWorld() ? 100 : 30;
+            }
 
             // Update high detail for new world
             updateDetailVisibility();
