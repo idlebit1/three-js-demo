@@ -57,6 +57,11 @@
             <option value="simmer">Simmer</option>
             <option value="glade">Forest Glade</option>
         </select>
+        <label style="margin-top: 12px;">Scale</label>
+        <select id="scaleSelect">
+            <option value="standard">Standard</option>
+            <option value="grand">Grand</option>
+        </select>
         <label style="margin-top: 12px;">Character</label>
         <select id="characterSelect">
             <option value="panda">Panda</option>
@@ -107,6 +112,25 @@
         <label style="margin-top: 12px;">
             <input type="checkbox" id="cameraCreatureToggle" style="margin-right: 6px;">
             Camera Creature
+        </label>
+        <label style="margin-top: 12px;">Detail Level</label>
+        <select id="detailLevelSelect">
+            <option value="normal">Normal</option>
+            <option value="high">High</option>
+            <option value="super">Super</option>
+            <option value="texture">Texture</option>
+        </select>
+        <label style="margin-top: 12px;">
+            <input type="checkbox" id="sphereTextureToggle" style="margin-right: 6px;">
+            Sphere Texture
+        </label>
+        <label style="margin-top: 12px;">
+            <input type="checkbox" id="interactiveToggle" style="margin-right: 6px;">
+            Interactive Mode
+        </label>
+        <label style="margin-top: 12px;">
+            <input type="checkbox" id="crypticToggle" style="margin-right: 6px;">
+            Cryptic Scripts
         </label>
     </div>
 
@@ -1230,8 +1254,8 @@
             return bambooGroup;
         }
 
-        bambooWorld.add(createBamboo(-2.5, -1, 3.5));
-        bambooWorld.add(createBamboo(-2.2, -1.5, 4));
+        bambooWorld.add(createBamboo(-2.5, -1, 4));
+        bambooWorld.add(createBamboo(-2.2, -1.5, 4.5));
         bambooWorld.add(createBamboo(-2.7, -0.5, 3));
         bambooWorld.add(createBamboo(2.5, -0.8, 3.8));
         bambooWorld.add(createBamboo(2.3, -1.3, 3.2));
@@ -1376,6 +1400,7 @@
                 driftPhase: Math.random() * Math.PI * 2,
                 swayAmount: 0.3 + Math.random() * 0.5,
                 swaySpeed: 0.2 + Math.random() * 0.3,
+                noInteract: true, // Skip in raycasting
             };
 
             dustMotes.push(dust);
@@ -1391,7 +1416,8 @@
         });
 
         for (let i = 0; i < 8; i++) {
-            let stoneGeo = new THREE.IcosahedronGeometry(0.15 + Math.random() * 0.2, 2);
+            const stoneSize = 0.15 + Math.random() * 0.2;
+            let stoneGeo = new THREE.IcosahedronGeometry(stoneSize, 2);
             // Smooth the stone slightly
             const positions = stoneGeo.attributes.position.array;
             for (let j = 0; j < positions.length; j += 3) {
@@ -1404,26 +1430,50 @@
             const stone = new THREE.Mesh(stoneGeo, stoneMaterial.clone());
             stone.material.color.setHSL(0.08 + Math.random() * 0.05, 0.15, 0.5 + Math.random() * 0.15);
 
+            // Create invisible hitbox sphere (larger than the stone)
+            const hitboxGeo = new THREE.SphereGeometry(stoneSize * 1.8, 8, 6);
+            const hitboxMat = new THREE.MeshBasicMaterial({
+                visible: false,  // Invisible
+            });
+            const hitbox = new THREE.Mesh(hitboxGeo, hitboxMat);
+
             // Position in a loose arrangement
             const angle = (i / 8) * Math.PI * 2 + Math.random() * 0.5;
             const radius = 2 + Math.random() * 2;
+            const posY = 1 + Math.random() * 3;
             stone.position.set(
                 Math.cos(angle) * radius,
-                1 + Math.random() * 3,
+                posY,
                 Math.sin(angle) * radius
             );
+            hitbox.position.copy(stone.position);
 
-            stone.userData = {
-                baseY: stone.position.y,
+            // Link hitbox to stone
+            hitbox.userData = {
+                baseY: posY,
                 floatSpeed: 0.15 + Math.random() * 0.1,
                 floatPhase: Math.random() * Math.PI * 2,
                 floatAmount: 0.1 + Math.random() * 0.15,
                 rotateSpeed: 0.05 + Math.random() * 0.1,
+                linkedStone: stone,  // Reference to actual stone
+                isHitbox: true,
+            };
+
+            // Stone also needs userData for animation sync
+            stone.userData = {
+                baseY: posY,
+                floatSpeed: hitbox.userData.floatSpeed,
+                floatPhase: hitbox.userData.floatPhase,
+                floatAmount: hitbox.userData.floatAmount,
+                rotateSpeed: hitbox.userData.rotateSpeed,
+                linkedHitbox: hitbox,  // Back-reference to hitbox
             };
 
             stone.castShadow = true;
             floatingStones.push(stone);
+            floatingStones.push(hitbox);  // Add hitbox to animation array too
             driftWorld.add(stone);
+            driftWorld.add(hitbox);
         }
 
         // Light shaft - that slanting late afternoon beam
@@ -1439,6 +1489,7 @@
         lightShaft.position.set(2, 3, -1);
         lightShaft.rotation.z = 0.4;
         lightShaft.rotation.x = 0.2;
+        lightShaft.userData.noInteract = true;  // Click through
         driftWorld.add(lightShaft);
 
         // Second, fainter shaft
@@ -1448,6 +1499,7 @@
         shaft2.rotation.z = -0.3;
         shaft2.rotation.x = -0.15;
         shaft2.scale.set(0.7, 1, 0.7);
+        shaft2.userData.noInteract = true;  // Click through
         driftWorld.add(shaft2);
 
         // A few gentle, abstract forms - like thoughts you notice but don't chase
@@ -1611,6 +1663,7 @@
                 ),
                 life: Math.random(),
                 maxLife: 0.5 + Math.random() * 1,
+                noInteract: true,
             };
             spark.visible = false;
             sparks.push(spark);
@@ -1850,6 +1903,7 @@
                 baseY: mote.position.y,
                 floatSpeed: 0.15 + Math.random() * 0.1,
                 floatPhase: Math.random() * Math.PI * 2,
+                noInteract: true,
             };
 
             hearthMotes.push(mote);
@@ -2048,6 +2102,7 @@
             steam.userData = {
                 speed: 0.5 + Math.random() * 0.5,
                 drift: (Math.random() - 0.5) * 0.3,
+                noInteract: true,
             };
             steam.visible = false;
             steamParticles.push(steam);
@@ -2541,6 +2596,3562 @@
         gladeWorld.visible = false;
         scene.add(gladeWorld);
 
+        // ============================================
+        // GRAND SCALE CONTENT - vertical journey
+        // ============================================
+        let currentScale = 'standard';
+        let cameraFollowEnabled = false;
+        const grandWorld = new THREE.Group();
+
+        // Expanded ground for grand scale
+        const grandGround = new THREE.Mesh(
+            new THREE.PlaneGeometry(200, 200),
+            new THREE.MeshStandardMaterial({
+                color: 0x3d6b35,
+                roughness: 0.9,
+            })
+        );
+        grandGround.rotation.x = -Math.PI / 2;
+        grandGround.position.y = -0.5;
+        grandGround.receiveShadow = true;
+        grandWorld.add(grandGround);
+
+        // Distant mountains on the horizon
+        function createMountain(x, z, height, width) {
+            const mountainGeo = new THREE.ConeGeometry(width, height, 6);
+            const mountainMat = new THREE.MeshStandardMaterial({
+                color: 0x4a5568,
+                roughness: 0.9,
+            });
+            const mountain = new THREE.Mesh(mountainGeo, mountainMat);
+            mountain.position.set(x, height / 2 - 0.5, z);
+
+            // Snow cap
+            const snowGeo = new THREE.ConeGeometry(width * 0.4, height * 0.3, 6);
+            const snowMat = new THREE.MeshStandardMaterial({ color: 0xffffff });
+            const snow = new THREE.Mesh(snowGeo, snowMat);
+            snow.position.y = height * 0.35;
+            mountain.add(snow);
+
+            return mountain;
+        }
+
+        // Ring of mountains
+        for (let i = 0; i < 12; i++) {
+            const angle = (i / 12) * Math.PI * 2;
+            const dist = 60 + Math.random() * 20;
+            grandWorld.add(createMountain(
+                Math.cos(angle) * dist,
+                Math.sin(angle) * dist,
+                15 + Math.random() * 20,
+                8 + Math.random() * 6
+            ));
+        }
+
+        // Trees scattered on ground
+        function createGrandTree(x, z) {
+            const tree = new THREE.Group();
+            const trunk = new THREE.Mesh(
+                new THREE.CylinderGeometry(0.3, 0.5, 4, 8),
+                new THREE.MeshStandardMaterial({ color: 0x5c4033 })
+            );
+            trunk.position.y = 2;
+            tree.add(trunk);
+
+            const canopy = new THREE.Mesh(
+                new THREE.ConeGeometry(2.5, 5, 8),
+                new THREE.MeshStandardMaterial({ color: 0x2d5a27 })
+            );
+            canopy.position.y = 5.5;
+            tree.add(canopy);
+
+            tree.position.set(x, 0, z);
+            return tree;
+        }
+
+        for (let i = 0; i < 50; i++) {
+            const angle = Math.random() * Math.PI * 2;
+            const dist = 10 + Math.random() * 40;
+            grandWorld.add(createGrandTree(
+                Math.cos(angle) * dist,
+                Math.sin(angle) * dist
+            ));
+        }
+
+        // ALTITUDE LAYERS - things to discover as you rise
+
+        // Layer 1: Low clouds (height 20-40)
+        const lowClouds = [];
+        function createCloud(y, scale) {
+            const cloud = new THREE.Group();
+            const cloudMat = new THREE.MeshStandardMaterial({
+                color: 0xffffff,
+                roughness: 1,
+                transparent: true,
+                opacity: 0.9,
+            });
+
+            for (let i = 0; i < 5 + Math.random() * 5; i++) {
+                const puff = new THREE.Mesh(
+                    new THREE.SphereGeometry(1 + Math.random(), 8, 6),
+                    cloudMat
+                );
+                puff.position.set(
+                    (Math.random() - 0.5) * 3 * scale,
+                    (Math.random() - 0.5) * 0.8 * scale,
+                    (Math.random() - 0.5) * 2 * scale
+                );
+                puff.scale.setScalar(scale);
+                cloud.add(puff);
+            }
+
+            cloud.position.y = y;
+            cloud.userData = {
+                baseX: (Math.random() - 0.5) * 80,
+                baseZ: (Math.random() - 0.5) * 80,
+                driftSpeed: 0.5 + Math.random() * 0.5,
+                driftPhase: Math.random() * Math.PI * 2,
+            };
+            cloud.position.x = cloud.userData.baseX;
+            cloud.position.z = cloud.userData.baseZ;
+
+            return cloud;
+        }
+
+        for (let i = 0; i < 20; i++) {
+            const cloud = createCloud(20 + Math.random() * 20, 1 + Math.random());
+            lowClouds.push(cloud);
+            grandWorld.add(cloud);
+        }
+
+        // Layer 2: Flying birds (height 30-60)
+        const grandBirds = [];
+        function createGrandBird() {
+            const bird = new THREE.Group();
+            const bodyMat = new THREE.MeshStandardMaterial({ color: 0x333333 });
+
+            const body = new THREE.Mesh(
+                new THREE.ConeGeometry(0.2, 1, 6),
+                bodyMat
+            );
+            body.rotation.z = Math.PI / 2;
+            bird.add(body);
+
+            const wingMat = new THREE.MeshStandardMaterial({ color: 0x444444, side: THREE.DoubleSide });
+            const wingGeo = new THREE.PlaneGeometry(1.5, 0.4);
+
+            const leftWing = new THREE.Mesh(wingGeo, wingMat);
+            leftWing.position.set(0, 0.1, 0);
+            bird.add(leftWing);
+
+            bird.userData = {
+                leftWing,
+                baseY: 30 + Math.random() * 30,
+                circleRadius: 10 + Math.random() * 20,
+                circleSpeed: 0.2 + Math.random() * 0.2,
+                phase: Math.random() * Math.PI * 2,
+            };
+
+            return bird;
+        }
+
+        for (let i = 0; i < 15; i++) {
+            const bird = createGrandBird();
+            grandBirds.push(bird);
+            grandWorld.add(bird);
+        }
+
+        // Layer 3: Floating islands (height 50-100)
+        const floatingIslands = [];
+        function createFloatingIsland(y) {
+            const island = new THREE.Group();
+
+            // Rock base
+            const rockGeo = new THREE.IcosahedronGeometry(3 + Math.random() * 2, 1);
+            const positions = rockGeo.attributes.position.array;
+            for (let i = 0; i < positions.length; i += 3) {
+                if (positions[i + 1] < 0) {
+                    positions[i + 1] *= 1.5; // Stretch bottom
+                }
+                positions[i] += (Math.random() - 0.5) * 0.5;
+                positions[i + 2] += (Math.random() - 0.5) * 0.5;
+            }
+            rockGeo.computeVertexNormals();
+
+            const rock = new THREE.Mesh(rockGeo, new THREE.MeshStandardMaterial({
+                color: 0x6b5344,
+                roughness: 0.9,
+            }));
+            island.add(rock);
+
+            // Grass top
+            const grassTop = new THREE.Mesh(
+                new THREE.CylinderGeometry(2.5, 3, 0.5, 12),
+                new THREE.MeshStandardMaterial({ color: 0x4a9f4d })
+            );
+            grassTop.position.y = 1.5;
+            island.add(grassTop);
+
+            // Mini trees on island
+            for (let i = 0; i < 2 + Math.random() * 3; i++) {
+                const miniTree = new THREE.Group();
+                const trunk = new THREE.Mesh(
+                    new THREE.CylinderGeometry(0.1, 0.15, 1, 6),
+                    new THREE.MeshStandardMaterial({ color: 0x5c4033 })
+                );
+                trunk.position.y = 0.5;
+                miniTree.add(trunk);
+
+                const leaves = new THREE.Mesh(
+                    new THREE.ConeGeometry(0.6, 1.2, 6),
+                    new THREE.MeshStandardMaterial({ color: 0x2d5a27 })
+                );
+                leaves.position.y = 1.3;
+                miniTree.add(leaves);
+
+                miniTree.position.set(
+                    (Math.random() - 0.5) * 3,
+                    1.7,
+                    (Math.random() - 0.5) * 3
+                );
+                island.add(miniTree);
+            }
+
+            // Waterfall from some islands
+            if (Math.random() > 0.5) {
+                const waterfall = new THREE.Mesh(
+                    new THREE.CylinderGeometry(0.3, 0.5, 8, 8),
+                    new THREE.MeshStandardMaterial({
+                        color: 0x88ccff,
+                        transparent: true,
+                        opacity: 0.6,
+                    })
+                );
+                waterfall.position.set(2, -3, 0);
+                island.add(waterfall);
+            }
+
+            island.position.y = y;
+            island.position.x = (Math.random() - 0.5) * 60;
+            island.position.z = (Math.random() - 0.5) * 60;
+
+            island.userData = {
+                baseY: y,
+                bobSpeed: 0.2 + Math.random() * 0.1,
+                bobPhase: Math.random() * Math.PI * 2,
+                rotateSpeed: 0.05 + Math.random() * 0.05,
+            };
+
+            return island;
+        }
+
+        for (let i = 0; i < 8; i++) {
+            const island = createFloatingIsland(50 + Math.random() * 50);
+            floatingIslands.push(island);
+            grandWorld.add(island);
+        }
+
+        // Layer 4: High clouds / mist (height 80-120)
+        const highClouds = [];
+        for (let i = 0; i < 15; i++) {
+            const cloud = createCloud(80 + Math.random() * 40, 2 + Math.random() * 2);
+            cloud.children.forEach(puff => {
+                puff.material = puff.material.clone();
+                puff.material.opacity = 0.5;
+            });
+            highClouds.push(cloud);
+            grandWorld.add(cloud);
+        }
+
+        // Layer 5: Aurora / ethereal lights (height 120-180)
+        const auroraLights = [];
+        const auroraMaterial = new THREE.MeshBasicMaterial({
+            color: 0x00ff88,
+            transparent: true,
+            opacity: 0.3,
+            side: THREE.DoubleSide,
+        });
+
+        for (let i = 0; i < 6; i++) {
+            const auroraGeo = new THREE.PlaneGeometry(30, 20, 10, 10);
+            const aurora = new THREE.Mesh(auroraGeo, auroraMaterial.clone());
+            aurora.material.color.setHSL(0.3 + Math.random() * 0.4, 0.8, 0.5);
+
+            aurora.position.set(
+                (Math.random() - 0.5) * 80,
+                130 + Math.random() * 40,
+                (Math.random() - 0.5) * 80
+            );
+            aurora.rotation.y = Math.random() * Math.PI;
+
+            aurora.userData = {
+                waveSpeed: 0.5 + Math.random() * 0.5,
+                wavePhase: Math.random() * Math.PI * 2,
+            };
+
+            auroraLights.push(aurora);
+            grandWorld.add(aurora);
+        }
+
+        // Layer 6: Stars / space (height 150+)
+        const stars = [];
+        const starMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff });
+
+        for (let i = 0; i < 200; i++) {
+            const star = new THREE.Mesh(
+                new THREE.SphereGeometry(0.1 + Math.random() * 0.2, 4, 4),
+                starMaterial.clone()
+            );
+            const angle = Math.random() * Math.PI * 2;
+            const dist = 50 + Math.random() * 100;
+            star.position.set(
+                Math.cos(angle) * dist,
+                160 + Math.random() * 100,
+                Math.sin(angle) * dist
+            );
+            star.userData = {
+                twinkleSpeed: 2 + Math.random() * 3,
+                twinklePhase: Math.random() * Math.PI * 2,
+            };
+            stars.push(star);
+            grandWorld.add(star);
+        }
+
+        grandWorld.visible = false;
+        scene.add(grandWorld);
+
+        // Detail Level System - 'normal', 'high', 'super'
+        let detailLevel = 'normal';
+        const hdDummy = new THREE.Object3D();
+
+        // World-specific high detail groups
+        const highDetailGroups = {
+            bamboo: new THREE.Group(),
+            lava: new THREE.Group(),
+            drift: new THREE.Group(),
+            voltage: new THREE.Group(),
+            hearth: new THREE.Group(),
+            simmer: new THREE.Group(),
+            glade: new THREE.Group()
+        };
+        Object.values(highDetailGroups).forEach(g => {
+            g.visible = false;
+            scene.add(g);
+        });
+
+        // Super detail groups (shell-based volumetric grass, dense particles)
+        const superDetailGroups = {
+            bamboo: new THREE.Group(),
+            lava: new THREE.Group(),
+            drift: new THREE.Group(),
+            voltage: new THREE.Group(),
+            hearth: new THREE.Group(),
+            simmer: new THREE.Group(),
+            glade: new THREE.Group()
+        };
+        Object.values(superDetailGroups).forEach(g => {
+            g.visible = false;
+            scene.add(g);
+        });
+
+        // Shell grass shader material for super detail
+        const shellGrassUniforms = { time: { value: 0 } };
+        function createShellGrassMaterial(shellIndex, shellCount, baseColor, tipColor) {
+            return new THREE.ShaderMaterial({
+                uniforms: {
+                    time: shellGrassUniforms.time,
+                    shellIndex: { value: shellIndex },
+                    shellCount: { value: shellCount },
+                    baseColor: { value: new THREE.Color(baseColor) },
+                    tipColor: { value: new THREE.Color(tipColor) }
+                },
+                vertexShader: `
+                    varying vec2 vUv;
+                    varying float vHeight;
+                    uniform float shellIndex;
+                    uniform float shellCount;
+                    uniform float time;
+
+                    void main() {
+                        vUv = uv;
+                        vHeight = shellIndex / shellCount;
+
+                        vec3 pos = position;
+                        pos.y += shellIndex * 0.025;
+
+                        // Wind sway increases with height
+                        float sway = sin(time * 1.5 + position.x * 3.0 + position.z * 2.0) * 0.04 * vHeight;
+                        pos.x += sway;
+                        pos.z += sway * 0.5;
+
+                        gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);
+                    }
+                `,
+                fragmentShader: `
+                    varying vec2 vUv;
+                    varying float vHeight;
+                    uniform vec3 baseColor;
+                    uniform vec3 tipColor;
+
+                    float hash(vec2 p) {
+                        return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+                    }
+
+                    void main() {
+                        // Dense grass pattern
+                        vec2 uv = vUv * 80.0;
+                        vec2 cell = floor(uv);
+                        vec2 local = fract(uv);
+
+                        // Each cell has random grass blade
+                        float h = hash(cell);
+                        float h2 = hash(cell + 50.0);
+
+                        // Blade presence decreases with height (grass tips are sparse)
+                        float threshold = h * 0.9 + 0.1;
+                        if (vHeight > threshold) discard;
+
+                        // Blade shape - thin vertical strip
+                        float bladeX = h2 * 0.6 + 0.2;
+                        float bladeWidth = 0.15 + h * 0.1;
+                        float inBlade = 1.0 - smoothstep(0.0, bladeWidth, abs(local.x - bladeX));
+
+                        if (inBlade < 0.3) discard;
+
+                        vec3 color = mix(baseColor, tipColor, vHeight);
+                        // Darken based on blade position for depth
+                        color *= 0.7 + inBlade * 0.3;
+
+                        gl_FragColor = vec4(color, 1.0);
+                    }
+                `,
+                side: THREE.DoubleSide,
+                transparent: true
+            });
+        }
+
+        // Create super detail for nature worlds (bamboo, glade)
+        function createNatureSuperDetail(group, baseColor, tipColor) {
+            const shellCount = 12;
+            const groundGeo = new THREE.CircleGeometry(10, 32);
+
+            for (let i = 0; i < shellCount; i++) {
+                const mat = createShellGrassMaterial(i, shellCount, baseColor, tipColor);
+                const shell = new THREE.Mesh(groundGeo, mat);
+                shell.rotation.x = -Math.PI / 2;
+                shell.position.y = 0.01;
+                group.add(shell);
+            }
+        }
+
+        // Create lava super detail - dense embers, heat shimmer
+        function createLavaSuperDetail(group) {
+            // Many more embers
+            const emberCount = 500;
+            const emberPos = new Float32Array(emberCount * 3);
+            for (let i = 0; i < emberCount; i++) {
+                emberPos[i * 3] = (Math.random() - 0.5) * 20;
+                emberPos[i * 3 + 1] = Math.random() * 8;
+                emberPos[i * 3 + 2] = (Math.random() - 0.5) * 20;
+            }
+            const emberGeo = new THREE.BufferGeometry();
+            emberGeo.setAttribute('position', new THREE.BufferAttribute(emberPos, 3));
+            const embers = new THREE.Points(emberGeo, new THREE.PointsMaterial({
+                color: 0xff6600, size: 0.06, transparent: true, opacity: 0.8
+            }));
+            embers.userData = { geo: emberGeo, basePositions: emberPos.slice(), isEmber: true };
+            group.add(embers);
+
+            // Dense crack network on ground
+            const crackMat = new THREE.ShaderMaterial({
+                uniforms: { time: shellGrassUniforms.time },
+                vertexShader: `varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+                fragmentShader: `
+                    varying vec2 vUv;
+                    uniform float time;
+                    float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+                    void main() {
+                        vec2 uv = vUv * 30.0;
+                        vec2 cell = floor(uv);
+                        vec2 local = fract(uv);
+                        float h = hash(cell);
+                        float crack = smoothstep(0.48, 0.5, abs(local.x - 0.5)) * smoothstep(0.48, 0.5, abs(local.y - 0.5));
+                        crack = 1.0 - crack;
+                        if (crack < 0.1) discard;
+                        float pulse = 0.6 + sin(time * 2.0 + h * 6.28) * 0.4;
+                        gl_FragColor = vec4(1.0, 0.3 * pulse, 0.0, crack * pulse);
+                    }
+                `,
+                transparent: true, side: THREE.DoubleSide
+            });
+            const crackPlane = new THREE.Mesh(new THREE.CircleGeometry(8, 32), crackMat);
+            crackPlane.rotation.x = -Math.PI / 2;
+            crackPlane.position.y = 0.02;
+            group.add(crackPlane);
+        }
+
+        // Create voltage super detail - electric field effect
+        function createVoltageSuperDetail(group) {
+            const sparkCount = 400;
+            const sparkPos = new Float32Array(sparkCount * 3);
+            for (let i = 0; i < sparkCount; i++) {
+                sparkPos[i * 3] = (Math.random() - 0.5) * 18;
+                sparkPos[i * 3 + 1] = Math.random() * 8;
+                sparkPos[i * 3 + 2] = (Math.random() - 0.5) * 18;
+            }
+            const sparkGeo = new THREE.BufferGeometry();
+            sparkGeo.setAttribute('position', new THREE.BufferAttribute(sparkPos, 3));
+            const sparks = new THREE.Points(sparkGeo, new THREE.PointsMaterial({
+                color: 0x88ccff, size: 0.05, transparent: true, opacity: 0.7
+            }));
+            sparks.userData = { geo: sparkGeo, basePositions: sparkPos.slice(), isSpark: true };
+            group.add(sparks);
+
+            // Electric grid floor
+            const gridMat = new THREE.ShaderMaterial({
+                uniforms: { time: shellGrassUniforms.time },
+                vertexShader: `varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+                fragmentShader: `
+                    varying vec2 vUv;
+                    uniform float time;
+                    void main() {
+                        vec2 uv = vUv * 40.0;
+                        vec2 grid = abs(fract(uv) - 0.5);
+                        float line = min(grid.x, grid.y);
+                        float glow = smoothstep(0.02, 0.0, line);
+                        float pulse = 0.5 + sin(time * 3.0 + uv.x + uv.y) * 0.5;
+                        if (glow < 0.1) discard;
+                        gl_FragColor = vec4(0.4, 0.7, 1.0, glow * pulse * 0.6);
+                    }
+                `,
+                transparent: true, side: THREE.DoubleSide
+            });
+            const gridPlane = new THREE.Mesh(new THREE.CircleGeometry(10, 32), gridMat);
+            gridPlane.rotation.x = -Math.PI / 2;
+            gridPlane.position.y = 0.01;
+            group.add(gridPlane);
+        }
+
+        // Initialize super detail for all worlds
+        createNatureSuperDetail(superDetailGroups.bamboo, 0x3a6b23, 0x7ab534);
+        createNatureSuperDetail(superDetailGroups.glade, 0x4a8c33, 0x8bc544);
+        createLavaSuperDetail(superDetailGroups.lava);
+        createVoltageSuperDetail(superDetailGroups.voltage);
+
+        // Drift super - dense floating particles
+        (function() {
+            const group = superDetailGroups.drift;
+            const count = 300;
+            const pos = new Float32Array(count * 3);
+            for (let i = 0; i < count; i++) {
+                pos[i * 3] = (Math.random() - 0.5) * 15;
+                pos[i * 3 + 1] = 0.5 + Math.random() * 5;
+                pos[i * 3 + 2] = (Math.random() - 0.5) * 15;
+            }
+            const geo = new THREE.BufferGeometry();
+            geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+            const pts = new THREE.Points(geo, new THREE.PointsMaterial({
+                color: 0xffddaa, size: 0.03, transparent: true, opacity: 0.4
+            }));
+            pts.userData = { geo, basePositions: pos.slice() };
+            group.add(pts);
+        })();
+
+        // Hearth super - warm ember field
+        (function() {
+            const group = superDetailGroups.hearth;
+            const count = 250;
+            const pos = new Float32Array(count * 3);
+            for (let i = 0; i < count; i++) {
+                pos[i * 3] = (Math.random() - 0.5) * 15;
+                pos[i * 3 + 1] = 0.3 + Math.random() * 4;
+                pos[i * 3 + 2] = (Math.random() - 0.5) * 15;
+            }
+            const geo = new THREE.BufferGeometry();
+            geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+            const pts = new THREE.Points(geo, new THREE.PointsMaterial({
+                color: 0xffaa55, size: 0.04, transparent: true, opacity: 0.5
+            }));
+            pts.userData = { geo, basePositions: pos.slice() };
+            group.add(pts);
+        })();
+
+        // Simmer super - intense steam/pressure
+        (function() {
+            const group = superDetailGroups.simmer;
+            const count = 350;
+            const pos = new Float32Array(count * 3);
+            for (let i = 0; i < count; i++) {
+                pos[i * 3] = (Math.random() - 0.5) * 15;
+                pos[i * 3 + 1] = Math.random() * 6;
+                pos[i * 3 + 2] = (Math.random() - 0.5) * 15;
+            }
+            const geo = new THREE.BufferGeometry();
+            geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+            const pts = new THREE.Points(geo, new THREE.PointsMaterial({
+                color: 0xff7755, size: 0.05, transparent: true, opacity: 0.35
+            }));
+            pts.userData = { geo, basePositions: pos.slice(), rising: true };
+            group.add(pts);
+        })();
+
+        // ============================================
+        // TEXTURE-BASED DETAIL SYSTEM
+        // Applies textures to existing geometry
+        // ============================================
+
+        const textureUniforms = { time: { value: 0 } };
+
+        // Generate procedural textures
+        function generateBambooTexture() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 256;
+            canvas.height = 256;
+            const ctx = canvas.getContext('2d');
+
+            // Base bamboo green
+            ctx.fillStyle = '#4a7c23';
+            ctx.fillRect(0, 0, 256, 256);
+
+            // Vertical grain lines
+            for (let i = 0; i < 50; i++) {
+                ctx.strokeStyle = `rgba(${60 + Math.random() * 30}, ${100 + Math.random() * 40}, ${30 + Math.random() * 20}, 0.3)`;
+                ctx.lineWidth = 1 + Math.random() * 2;
+                ctx.beginPath();
+                ctx.moveTo(Math.random() * 256, 0);
+                ctx.lineTo(Math.random() * 256, 256);
+                ctx.stroke();
+            }
+
+            // Node rings
+            for (let y = 40; y < 256; y += 60) {
+                ctx.strokeStyle = '#3a6618';
+                ctx.lineWidth = 4;
+                ctx.beginPath();
+                ctx.moveTo(0, y + Math.random() * 10);
+                ctx.lineTo(256, y + Math.random() * 10);
+                ctx.stroke();
+            }
+
+            const tex = new THREE.CanvasTexture(canvas);
+            tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+            return tex;
+        }
+
+        function generateGrassGroundTexture() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 512;
+            canvas.height = 512;
+            const ctx = canvas.getContext('2d');
+
+            ctx.fillStyle = '#3d5a28';
+            ctx.fillRect(0, 0, 512, 512);
+
+            // Dense grass blades
+            for (let i = 0; i < 4000; i++) {
+                const x = Math.random() * 512;
+                const y = Math.random() * 512;
+                const h = 8 + Math.random() * 20;
+                const lean = (Math.random() - 0.5) * 15;
+
+                const grad = ctx.createLinearGradient(x, y, x + lean, y - h);
+                grad.addColorStop(0, '#3a5a23');
+                grad.addColorStop(1, '#7ab534');
+
+                ctx.strokeStyle = grad;
+                ctx.lineWidth = 1 + Math.random() * 2;
+                ctx.beginPath();
+                ctx.moveTo(x, y);
+                ctx.quadraticCurveTo(x + lean * 0.5, y - h * 0.6, x + lean, y - h);
+                ctx.stroke();
+            }
+
+            const tex = new THREE.CanvasTexture(canvas);
+            tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+            return tex;
+        }
+
+        function generateRockTexture() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 256;
+            canvas.height = 256;
+            const ctx = canvas.getContext('2d');
+            const imageData = ctx.createImageData(256, 256);
+
+            for (let i = 0; i < 256 * 256; i++) {
+                const v = 40 + Math.random() * 60;
+                imageData.data[i * 4] = v;
+                imageData.data[i * 4 + 1] = v * 0.9;
+                imageData.data[i * 4 + 2] = v * 0.85;
+                imageData.data[i * 4 + 3] = 255;
+            }
+            ctx.putImageData(imageData, 0, 0);
+
+            // Cracks
+            ctx.strokeStyle = 'rgba(30, 25, 20, 0.5)';
+            for (let i = 0; i < 15; i++) {
+                ctx.lineWidth = 1 + Math.random() * 2;
+                ctx.beginPath();
+                let x = Math.random() * 256, y = Math.random() * 256;
+                ctx.moveTo(x, y);
+                for (let j = 0; j < 5; j++) {
+                    x += (Math.random() - 0.5) * 40;
+                    y += (Math.random() - 0.5) * 40;
+                    ctx.lineTo(x, y);
+                }
+                ctx.stroke();
+            }
+
+            const tex = new THREE.CanvasTexture(canvas);
+            tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+            return tex;
+        }
+
+        function generateLavaRockTexture() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 256;
+            canvas.height = 256;
+            const ctx = canvas.getContext('2d');
+
+            ctx.fillStyle = '#1a0a08';
+            ctx.fillRect(0, 0, 256, 256);
+
+            // Volcanic texture
+            for (let i = 0; i < 2000; i++) {
+                const v = Math.random();
+                ctx.fillStyle = v > 0.95 ? '#ff4400' : `rgba(${30 + Math.random() * 20}, ${10 + Math.random() * 15}, ${5 + Math.random() * 10}, 0.5)`;
+                ctx.fillRect(Math.random() * 256, Math.random() * 256, 2 + Math.random() * 3, 2 + Math.random() * 3);
+            }
+
+            const tex = new THREE.CanvasTexture(canvas);
+            tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+            return tex;
+        }
+
+        function generateSphereTexture() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 512;
+            canvas.height = 256;
+            const ctx = canvas.getContext('2d');
+
+            // Gradient base
+            const grad = ctx.createLinearGradient(0, 0, 512, 256);
+            grad.addColorStop(0, '#4488cc');
+            grad.addColorStop(0.5, '#66aaee');
+            grad.addColorStop(1, '#4488cc');
+            ctx.fillStyle = grad;
+            ctx.fillRect(0, 0, 512, 256);
+
+            // Swirl pattern
+            for (let i = 0; i < 20; i++) {
+                ctx.strokeStyle = `rgba(255, 255, 255, ${0.1 + Math.random() * 0.2})`;
+                ctx.lineWidth = 2 + Math.random() * 5;
+                ctx.beginPath();
+                let x = Math.random() * 512;
+                let y = Math.random() * 256;
+                ctx.moveTo(x, y);
+                for (let j = 0; j < 10; j++) {
+                    x += Math.cos(j * 0.5) * 20;
+                    y += Math.sin(j * 0.5) * 10;
+                    ctx.lineTo(x, y);
+                }
+                ctx.stroke();
+            }
+
+            // Sparkles
+            for (let i = 0; i < 100; i++) {
+                ctx.fillStyle = `rgba(255, 255, 255, ${0.3 + Math.random() * 0.7})`;
+                ctx.beginPath();
+                ctx.arc(Math.random() * 512, Math.random() * 256, 1 + Math.random() * 2, 0, Math.PI * 2);
+                ctx.fill();
+            }
+
+            const tex = new THREE.CanvasTexture(canvas);
+            tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+            return tex;
+        }
+
+        function generateWoodTexture() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 256;
+            canvas.height = 256;
+            const ctx = canvas.getContext('2d');
+
+            ctx.fillStyle = '#8B5A2B';
+            ctx.fillRect(0, 0, 256, 256);
+
+            // Wood grain
+            for (let i = 0; i < 80; i++) {
+                ctx.strokeStyle = `rgba(${100 + Math.random() * 50}, ${60 + Math.random() * 30}, ${20 + Math.random() * 20}, 0.3)`;
+                ctx.lineWidth = 1 + Math.random() * 3;
+                const y = Math.random() * 256;
+                ctx.beginPath();
+                ctx.moveTo(0, y);
+                for (let x = 0; x < 256; x += 20) {
+                    ctx.lineTo(x, y + Math.sin(x * 0.05) * 5);
+                }
+                ctx.stroke();
+            }
+
+            const tex = new THREE.CanvasTexture(canvas);
+            tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+            return tex;
+        }
+
+        function generateLeafTexture() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 128;
+            canvas.height = 128;
+            const ctx = canvas.getContext('2d');
+
+            ctx.fillStyle = '#5a9c2e';
+            ctx.fillRect(0, 0, 128, 128);
+
+            // Vein pattern
+            ctx.strokeStyle = '#4a8c1e';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(64, 128);
+            ctx.lineTo(64, 0);
+            ctx.stroke();
+
+            for (let y = 20; y < 128; y += 20) {
+                ctx.beginPath();
+                ctx.moveTo(64, y);
+                ctx.lineTo(20 + Math.random() * 20, y - 10);
+                ctx.stroke();
+                ctx.beginPath();
+                ctx.moveTo(64, y);
+                ctx.lineTo(88 + Math.random() * 20, y - 10);
+                ctx.stroke();
+            }
+
+            const tex = new THREE.CanvasTexture(canvas);
+            tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+            return tex;
+        }
+
+        // Additional texture generators for all worlds
+        function generateMetalTexture() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 256;
+            canvas.height = 256;
+            const ctx = canvas.getContext('2d');
+
+            const grad = ctx.createLinearGradient(0, 0, 256, 256);
+            grad.addColorStop(0, '#666677');
+            grad.addColorStop(0.5, '#888899');
+            grad.addColorStop(1, '#666677');
+            ctx.fillStyle = grad;
+            ctx.fillRect(0, 0, 256, 256);
+
+            // Scratches
+            for (let i = 0; i < 30; i++) {
+                ctx.strokeStyle = `rgba(200, 200, 210, ${0.1 + Math.random() * 0.2})`;
+                ctx.lineWidth = 1;
+                ctx.beginPath();
+                ctx.moveTo(Math.random() * 256, Math.random() * 256);
+                ctx.lineTo(Math.random() * 256, Math.random() * 256);
+                ctx.stroke();
+            }
+
+            const tex = new THREE.CanvasTexture(canvas);
+            tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+            return tex;
+        }
+
+        function generateConcreteTexture() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 256;
+            canvas.height = 256;
+            const ctx = canvas.getContext('2d');
+
+            ctx.fillStyle = '#444450';
+            ctx.fillRect(0, 0, 256, 256);
+
+            for (let i = 0; i < 3000; i++) {
+                const v = 50 + Math.random() * 40;
+                ctx.fillStyle = `rgb(${v}, ${v}, ${v + 10})`;
+                ctx.fillRect(Math.random() * 256, Math.random() * 256, 1 + Math.random() * 2, 1 + Math.random() * 2);
+            }
+
+            const tex = new THREE.CanvasTexture(canvas);
+            tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+            return tex;
+        }
+
+        function generateFabricTexture(baseColor) {
+            const canvas = document.createElement('canvas');
+            canvas.width = 128;
+            canvas.height = 128;
+            const ctx = canvas.getContext('2d');
+
+            const c = new THREE.Color(baseColor);
+            ctx.fillStyle = `rgb(${c.r*255|0}, ${c.g*255|0}, ${c.b*255|0})`;
+            ctx.fillRect(0, 0, 128, 128);
+
+            // Weave pattern
+            for (let x = 0; x < 128; x += 4) {
+                for (let y = 0; y < 128; y += 4) {
+                    const light = ((x + y) / 4) % 2 === 0;
+                    ctx.fillStyle = light ?
+                        `rgba(255, 255, 255, 0.1)` :
+                        `rgba(0, 0, 0, 0.1)`;
+                    ctx.fillRect(x, y, 4, 4);
+                }
+            }
+
+            const tex = new THREE.CanvasTexture(canvas);
+            tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+            return tex;
+        }
+
+        function generateRugTexture() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 256;
+            canvas.height = 256;
+            const ctx = canvas.getContext('2d');
+
+            // Warm rug base
+            ctx.fillStyle = '#8B4513';
+            ctx.fillRect(0, 0, 256, 256);
+
+            // Pattern rings
+            for (let r = 120; r > 20; r -= 20) {
+                ctx.strokeStyle = r % 40 === 0 ? '#CD853F' : '#A0522D';
+                ctx.lineWidth = 8;
+                ctx.beginPath();
+                ctx.arc(128, 128, r, 0, Math.PI * 2);
+                ctx.stroke();
+            }
+
+            // Fringe texture
+            for (let i = 0; i < 500; i++) {
+                ctx.fillStyle = `rgba(${139 + Math.random()*40|0}, ${69 + Math.random()*30|0}, ${19 + Math.random()*20|0}, 0.3)`;
+                ctx.fillRect(Math.random() * 256, Math.random() * 256, 2, 2);
+            }
+
+            const tex = new THREE.CanvasTexture(canvas);
+            tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+            return tex;
+        }
+
+        function generateLavaTexture() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 256;
+            canvas.height = 256;
+            const ctx = canvas.getContext('2d');
+
+            // Hot lava gradient
+            const grad = ctx.createRadialGradient(128, 128, 0, 128, 128, 150);
+            grad.addColorStop(0, '#ffaa00');
+            grad.addColorStop(0.3, '#ff6600');
+            grad.addColorStop(0.7, '#cc3300');
+            grad.addColorStop(1, '#661100');
+            ctx.fillStyle = grad;
+            ctx.fillRect(0, 0, 256, 256);
+
+            // Bubbles/texture
+            for (let i = 0; i < 50; i++) {
+                const x = Math.random() * 256;
+                const y = Math.random() * 256;
+                const r = 5 + Math.random() * 15;
+                const grad2 = ctx.createRadialGradient(x, y, 0, x, y, r);
+                grad2.addColorStop(0, 'rgba(255, 200, 50, 0.8)');
+                grad2.addColorStop(1, 'rgba(255, 100, 0, 0)');
+                ctx.fillStyle = grad2;
+                ctx.beginPath();
+                ctx.arc(x, y, r, 0, Math.PI * 2);
+                ctx.fill();
+            }
+
+            const tex = new THREE.CanvasTexture(canvas);
+            tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+            return tex;
+        }
+
+        function generateWaterTexture() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 256;
+            canvas.height = 256;
+            const ctx = canvas.getContext('2d');
+
+            const grad = ctx.createLinearGradient(0, 0, 256, 256);
+            grad.addColorStop(0, '#3498db');
+            grad.addColorStop(0.5, '#5dade2');
+            grad.addColorStop(1, '#3498db');
+            ctx.fillStyle = grad;
+            ctx.fillRect(0, 0, 256, 256);
+
+            // Ripples
+            for (let i = 0; i < 20; i++) {
+                ctx.strokeStyle = `rgba(255, 255, 255, ${0.1 + Math.random() * 0.2})`;
+                ctx.lineWidth = 1 + Math.random() * 2;
+                ctx.beginPath();
+                ctx.arc(Math.random() * 256, Math.random() * 256, 10 + Math.random() * 30, 0, Math.PI * 2);
+                ctx.stroke();
+            }
+
+            const tex = new THREE.CanvasTexture(canvas);
+            tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+            return tex;
+        }
+
+        function generateFlowerTexture(petalColor) {
+            const canvas = document.createElement('canvas');
+            canvas.width = 64;
+            canvas.height = 64;
+            const ctx = canvas.getContext('2d');
+
+            ctx.fillStyle = '#3d6b35';
+            ctx.fillRect(0, 0, 64, 64);
+
+            // Petals
+            const c = new THREE.Color(petalColor);
+            for (let i = 0; i < 5; i++) {
+                const angle = (i / 5) * Math.PI * 2;
+                ctx.fillStyle = `rgb(${c.r*255|0}, ${c.g*255|0}, ${c.b*255|0})`;
+                ctx.beginPath();
+                ctx.ellipse(32 + Math.cos(angle) * 15, 32 + Math.sin(angle) * 15, 10, 6, angle, 0, Math.PI * 2);
+                ctx.fill();
+            }
+
+            // Center
+            ctx.fillStyle = '#ffdd00';
+            ctx.beginPath();
+            ctx.arc(32, 32, 6, 0, Math.PI * 2);
+            ctx.fill();
+
+            const tex = new THREE.CanvasTexture(canvas);
+            tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+            return tex;
+        }
+
+        function generateBarkTexture() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 128;
+            canvas.height = 256;
+            const ctx = canvas.getContext('2d');
+
+            ctx.fillStyle = '#654321';
+            ctx.fillRect(0, 0, 128, 256);
+
+            // Vertical bark lines
+            for (let i = 0; i < 20; i++) {
+                const x = Math.random() * 128;
+                ctx.strokeStyle = `rgba(${40 + Math.random()*30|0}, ${25 + Math.random()*20|0}, ${10 + Math.random()*15|0}, 0.7)`;
+                ctx.lineWidth = 2 + Math.random() * 4;
+                ctx.beginPath();
+                ctx.moveTo(x, 0);
+                for (let y = 0; y < 256; y += 20) {
+                    ctx.lineTo(x + (Math.random() - 0.5) * 10, y);
+                }
+                ctx.stroke();
+            }
+
+            const tex = new THREE.CanvasTexture(canvas);
+            tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+            return tex;
+        }
+
+        function generateMushroomTexture() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 64;
+            canvas.height = 64;
+            const ctx = canvas.getContext('2d');
+
+            ctx.fillStyle = '#cc4444';
+            ctx.fillRect(0, 0, 64, 64);
+
+            // White spots
+            for (let i = 0; i < 8; i++) {
+                ctx.fillStyle = '#ffffff';
+                ctx.beginPath();
+                ctx.arc(Math.random() * 64, Math.random() * 64, 3 + Math.random() * 5, 0, Math.PI * 2);
+                ctx.fill();
+            }
+
+            const tex = new THREE.CanvasTexture(canvas);
+            tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+            return tex;
+        }
+
+        function generateElectricTexture() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 128;
+            canvas.height = 128;
+            const ctx = canvas.getContext('2d');
+
+            ctx.fillStyle = '#1a1a2e';
+            ctx.fillRect(0, 0, 128, 128);
+
+            // Electric arcs
+            for (let i = 0; i < 5; i++) {
+                ctx.strokeStyle = `rgba(100, 150, 255, ${0.5 + Math.random() * 0.5})`;
+                ctx.lineWidth = 1 + Math.random() * 2;
+                ctx.beginPath();
+                let x = Math.random() * 128;
+                let y = 0;
+                ctx.moveTo(x, y);
+                while (y < 128) {
+                    x += (Math.random() - 0.5) * 20;
+                    y += 5 + Math.random() * 10;
+                    ctx.lineTo(x, y);
+                }
+                ctx.stroke();
+            }
+
+            const tex = new THREE.CanvasTexture(canvas);
+            tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+            return tex;
+        }
+
+        // Pre-generate textures
+        const sceneTextures = {
+            bamboo: generateBambooTexture(),
+            grassGround: generateGrassGroundTexture(),
+            rock: generateRockTexture(),
+            lavaRock: generateLavaRockTexture(),
+            sphere: generateSphereTexture(),
+            wood: generateWoodTexture(),
+            leaf: generateLeafTexture(),
+            metal: generateMetalTexture(),
+            concrete: generateConcreteTexture(),
+            fabricWarm: generateFabricTexture(0xeeddcc),
+            fabricCool: generateFabricTexture(0xccddee),
+            rug: generateRugTexture(),
+            lava: generateLavaTexture(),
+            water: generateWaterTexture(),
+            flowerPink: generateFlowerTexture(0xff6b8a),
+            flowerYellow: generateFlowerTexture(0xffeb3b),
+            bark: generateBarkTexture(),
+            mushroom: generateMushroomTexture(),
+            electric: generateElectricTexture()
+        };
+
+        // Store original materials for swapping
+        const originalMaterials = new Map();
+
+        // Helper to apply texture to a mesh
+        function applyTextureToMesh(child, texture, options = {}) {
+            if (!originalMaterials.has(child)) {
+                originalMaterials.set(child, child.material);
+            }
+            child.material = new THREE.MeshStandardMaterial({
+                map: texture,
+                roughness: options.roughness ?? 0.8,
+                metalness: options.metalness ?? 0,
+                emissive: options.emissive ?? 0x000000,
+                emissiveIntensity: options.emissiveIntensity ?? 0,
+                side: options.doubleSide ? THREE.DoubleSide : THREE.FrontSide
+            });
+        }
+
+        // Apply textures to existing meshes
+        function applyTexturesToScene() {
+            // BAMBOO WORLD
+            bambooWorld.traverse(child => {
+                if (!child.isMesh || originalMaterials.has(child)) return;
+                const color = child.material.color;
+                if (!color) return;
+                const hex = color.getHex();
+
+                if (hex === 0x4a7c23) applyTextureToMesh(child, sceneTextures.bamboo, { roughness: 0.6 });
+                else if (hex === 0x5a9c2e) applyTextureToMesh(child, sceneTextures.leaf, { roughness: 0.8, doubleSide: true });
+                else if (hex === 0x7ec850) applyTextureToMesh(child, sceneTextures.grassGround, { roughness: 0.9 });
+            });
+
+            // LAVA WORLD
+            lavaWorld.traverse(child => {
+                if (!child.isMesh || originalMaterials.has(child)) return;
+                const color = child.material.color;
+                if (!color) return;
+                const hex = color.getHex();
+
+                // Dark rocks
+                if (hex === 0x1a0a0a || hex === 0x2a1a1a || hex === 0x3a2a2a) {
+                    applyTextureToMesh(child, sceneTextures.lavaRock, { roughness: 0.9, emissive: 0x220500, emissiveIntensity: 0.2 });
+                }
+                // Lava pools (orange/red emissive)
+                else if (child.material.emissive && child.material.emissiveIntensity > 0) {
+                    applyTextureToMesh(child, sceneTextures.lava, { roughness: 0.3, emissive: 0xff4400, emissiveIntensity: 0.8 });
+                }
+                // Ground
+                else if (hex === 0x1a0505 || hex === 0x0a0505) {
+                    applyTextureToMesh(child, sceneTextures.lavaRock, { roughness: 0.95 });
+                }
+            });
+
+            // DRIFT WORLD
+            driftWorld.traverse(child => {
+                if (!child.isMesh || originalMaterials.has(child)) return;
+                const color = child.material.color;
+                if (!color) return;
+                const hex = color.getHex();
+
+                // Wooden floor - 0x8b7355
+                if (hex === 0x8b7355) {
+                    applyTextureToMesh(child, sceneTextures.wood, { roughness: 0.85 });
+                }
+                // Floating stones - check warm brown/tan range (HSL modified from 0xa09080)
+                else if (color.r > 0.4 && color.r < 0.8 && color.g > 0.3 && color.g < 0.7 && color.b > 0.2 && color.b < 0.6) {
+                    applyTextureToMesh(child, sceneTextures.rock, { roughness: 0.9 });
+                }
+                // Paper/thought forms - 0xc4a882
+                else if (hex === 0xc4a882) {
+                    applyTextureToMesh(child, sceneTextures.fabricWarm, { roughness: 0.95, doubleSide: true });
+                }
+            });
+
+            // VOLTAGE WORLD
+            voltageWorld.traverse(child => {
+                if (!child.isMesh || originalMaterials.has(child)) return;
+                const color = child.material.color;
+                if (!color) return;
+                const hex = color.getHex();
+
+                // Concrete floor - 0x3a3a3a
+                if (hex === 0x3a3a3a) {
+                    applyTextureToMesh(child, sceneTextures.concrete, { roughness: 0.9 });
+                }
+                // Metal spinners - 0x666666, or HSL modified (cyan/gray tones)
+                else if (hex === 0x666666 || (color.r > 0.2 && color.r < 0.6 && Math.abs(color.r - color.g) < 0.15 && Math.abs(color.g - color.b) < 0.15)) {
+                    applyTextureToMesh(child, sceneTextures.metal, { roughness: 0.3, metalness: 0.8 });
+                }
+                // Screens - 0x00ff88 (green glow)
+                else if (hex === 0x00ff88 || (color.g > 0.8 && color.r < 0.3)) {
+                    applyTextureToMesh(child, sceneTextures.electric, { roughness: 0.2, emissive: 0x00ff88, emissiveIntensity: 0.5 });
+                }
+                // Light fixture - 0xffffee
+                else if (hex === 0xffffee) {
+                    applyTextureToMesh(child, sceneTextures.electric, { roughness: 0.1, emissive: 0xffffee, emissiveIntensity: 0.8 });
+                }
+            });
+
+            // HEARTH WORLD
+            hearthWorld.traverse(child => {
+                if (!child.isMesh || originalMaterials.has(child)) return;
+                const color = child.material.color;
+                if (!color) return;
+                const hex = color.getHex();
+
+                // Rug - 0x8b6b4a
+                if (hex === 0x8b6b4a) {
+                    applyTextureToMesh(child, sceneTextures.rug, { roughness: 0.95 });
+                }
+                // Family shapes - 0xddccbb, 0xeeddcc, 0xffeeee, 0xeeffee
+                else if (hex === 0xddccbb || hex === 0xeeddcc || hex === 0xffeeee || hex === 0xeeffee) {
+                    applyTextureToMesh(child, sceneTextures.fabricWarm, { roughness: 0.9 });
+                }
+                // Cushions - 0xcc9977 or HSL warm tones
+                else if (hex === 0xcc9977 || (color.r > 0.4 && color.r < 0.8 && color.g > 0.3 && color.g < 0.6 && color.b > 0.2 && color.b < 0.5)) {
+                    applyTextureToMesh(child, sceneTextures.fabricWarm, { roughness: 0.9 });
+                }
+                // Blankets - 0x997766 or HSL brownish tones
+                else if (hex === 0x997766 || (color.r > 0.35 && color.r < 0.55 && color.g > 0.25 && color.g < 0.45)) {
+                    applyTextureToMesh(child, sceneTextures.fabricCool, { roughness: 0.9, doubleSide: true });
+                }
+            });
+
+            // SIMMER WORLD
+            simmerWorld.traverse(child => {
+                if (!child.isMesh || originalMaterials.has(child)) return;
+                const color = child.material.color;
+                if (!color) return;
+                const hex = color.getHex();
+
+                // Floor - 0x553333
+                if (hex === 0x553333) {
+                    applyTextureToMesh(child, sceneTextures.lavaRock, { roughness: 0.9, emissive: 0x331111, emissiveIntensity: 0.1 });
+                }
+                // Scattered toys - 0xdd6644 or HSL bright warm colors
+                else if (hex === 0xdd6644 || (color.r > 0.6 && color.g < 0.5 && color.b < 0.4)) {
+                    applyTextureToMesh(child, sceneTextures.fabricWarm, { roughness: 0.5 });
+                }
+                // Containers - 0x885544
+                else if (hex === 0x885544) {
+                    applyTextureToMesh(child, sceneTextures.wood, { roughness: 0.7 });
+                }
+                // Pressure core - 0xff3300 (emissive)
+                else if (hex === 0xff3300) {
+                    applyTextureToMesh(child, sceneTextures.lava, { roughness: 0.3, emissive: 0xff3300, emissiveIntensity: 0.8 });
+                }
+            });
+
+            // GLADE WORLD
+            gladeWorld.traverse(child => {
+                if (!child.isMesh || originalMaterials.has(child)) return;
+                const color = child.material.color;
+                if (!color) return;
+                const hex = color.getHex();
+
+                // Tree trunks - 0x5c4033
+                if (hex === 0x5c4033) {
+                    applyTextureToMesh(child, sceneTextures.bark, { roughness: 0.95 });
+                }
+                // Tree canopy/leaves - 0x2d5a27 or HSL greens
+                else if (hex === 0x2d5a27 || (color.g > color.r && color.g > color.b && color.r < 0.3 && color.g > 0.2 && color.g < 0.5)) {
+                    applyTextureToMesh(child, sceneTextures.leaf, { roughness: 0.8, doubleSide: true });
+                }
+                // Grass ground - 0x3d8c40
+                else if (hex === 0x3d8c40) {
+                    applyTextureToMesh(child, sceneTextures.grassGround, { roughness: 0.9 });
+                }
+                // Grass blades - 0x4a9f4d, 0x3a7d32, or HSL greens (brighter grass tones)
+                else if (hex === 0x4a9f4d || hex === 0x3a7d32 || (color.g > color.r * 1.3 && color.g > color.b * 1.2 && color.g > 0.35 && color.g < 0.65)) {
+                    applyTextureToMesh(child, sceneTextures.leaf, { roughness: 0.7, doubleSide: true });
+                }
+                // Flowers - pink/white/purple/blue
+                else if (hex === 0xff6b8a || hex === 0x9b59b6 || hex === 0x3498db || hex === 0xffffff) {
+                    applyTextureToMesh(child, sceneTextures.flowerPink, { roughness: 0.7 });
+                }
+                // Flowers - yellow/orange and flower center
+                else if (hex === 0xffeb3b || hex === 0xff9800 || hex === 0xffdd00) {
+                    applyTextureToMesh(child, sceneTextures.flowerYellow, { roughness: 0.7 });
+                }
+                // Mushroom caps - 0xcc3333
+                else if (hex === 0xcc3333) {
+                    applyTextureToMesh(child, sceneTextures.mushroom, { roughness: 0.7 });
+                }
+                // Mushroom stem - 0xf5f5dc (beige)
+                else if (hex === 0xf5f5dc) {
+                    applyTextureToMesh(child, sceneTextures.fabricWarm, { roughness: 0.8 });
+                }
+            });
+
+            // GRAND WORLD
+            grandWorld.traverse(child => {
+                if (!child.isMesh || originalMaterials.has(child)) return;
+                const color = child.material.color;
+                if (!color) return;
+                const hex = color.getHex();
+
+                // Tree trunks - 0x5c4033
+                if (hex === 0x5c4033) {
+                    applyTextureToMesh(child, sceneTextures.bark, { roughness: 0.95 });
+                }
+                // Tree canopy - 0x2d5a27
+                else if (hex === 0x2d5a27) {
+                    applyTextureToMesh(child, sceneTextures.leaf, { roughness: 0.8 });
+                }
+                // Ground - 0x3d6b35
+                else if (hex === 0x3d6b35) {
+                    applyTextureToMesh(child, sceneTextures.grassGround, { roughness: 0.9 });
+                }
+                // Mountains - 0x4a5568
+                else if (hex === 0x4a5568) {
+                    applyTextureToMesh(child, sceneTextures.rock, { roughness: 0.95 });
+                }
+                // Snow caps - 0xffffff
+                else if (hex === 0xffffff && child.parent && child.parent.isMesh) {
+                    applyTextureToMesh(child, sceneTextures.rock, { roughness: 0.3, metalness: 0.1 });
+                }
+                // Clouds - white spheres (skip texturing, keep fluffy look)
+            });
+
+            // Sphere texture is controlled separately by its own toggle
+        }
+
+        // Remove textures and restore original materials
+        function removeTexturesFromScene() {
+            originalMaterials.forEach((originalMat, mesh) => {
+                if (mesh.material !== originalMat) {
+                    mesh.material.dispose();
+                    mesh.material = originalMat;
+                }
+            });
+        }
+
+        // Track texture mode state
+        let textureModeActive = false;
+        let sphereTextureEnabled = false;
+        let sphereOriginalMaterial = null;
+
+        // ============================================
+        // INTERACTIVE MODE - Physics and Interactions
+        // ============================================
+        let interactiveMode = false;
+        const physicsObjects = []; // Objects with physics simulation
+        const interactiveRaycaster = new THREE.Raycaster();
+        const interactiveMouse = new THREE.Vector2();
+
+        // Physics constants
+        const GRAVITY = -15;
+        const GROUND_Y = 0;
+        const BOUNCE_DAMPING = 0.6;
+        const FRICTION = 0.98;
+        const FADE_AFTER = 5; // seconds before fading
+        const FADE_DURATION = 2; // seconds to fade out
+        const MAX_PHYSICS_OBJECTS = 80; // Prevent performance issues
+
+        // Create a physics object from a mesh piece
+        function createPhysicsObject(mesh, velocity, angularVelocity) {
+            // Mark as debris so it can't be interacted with again
+            mesh.userData.isDebris = true;
+
+            // If we have too many physics objects, remove oldest ones
+            while (physicsObjects.length >= MAX_PHYSICS_OBJECTS) {
+                const oldest = physicsObjects.shift();
+                if (oldest.mesh.parent) {
+                    oldest.mesh.parent.remove(oldest.mesh);
+                }
+                if (oldest.mesh.geometry) oldest.mesh.geometry.dispose();
+                if (oldest.mesh.material) {
+                    if (Array.isArray(oldest.mesh.material)) {
+                        oldest.mesh.material.forEach(m => m.dispose());
+                    } else {
+                        oldest.mesh.material.dispose();
+                    }
+                }
+            }
+
+            return {
+                mesh: mesh,
+                velocity: velocity || new THREE.Vector3(
+                    (Math.random() - 0.5) * 3,
+                    Math.random() * 5 + 2,
+                    (Math.random() - 0.5) * 3
+                ),
+                angularVelocity: angularVelocity || new THREE.Vector3(
+                    (Math.random() - 0.5) * 5,
+                    (Math.random() - 0.5) * 5,
+                    (Math.random() - 0.5) * 5
+                ),
+                age: 0,
+                grounded: false,
+                bounces: 0
+            };
+        }
+
+        // Update physics for all objects
+        function updatePhysics(deltaTime) {
+            for (let i = physicsObjects.length - 1; i >= 0; i--) {
+                const obj = physicsObjects[i];
+                obj.age += deltaTime;
+
+                // Apply gravity
+                if (!obj.grounded) {
+                    obj.velocity.y += GRAVITY * deltaTime;
+                }
+
+                // Update position
+                obj.mesh.position.add(obj.velocity.clone().multiplyScalar(deltaTime));
+
+                // Update rotation
+                obj.mesh.rotation.x += obj.angularVelocity.x * deltaTime;
+                obj.mesh.rotation.y += obj.angularVelocity.y * deltaTime;
+                obj.mesh.rotation.z += obj.angularVelocity.z * deltaTime;
+
+                // Ground collision
+                const boundingBox = new THREE.Box3().setFromObject(obj.mesh);
+                const bottomY = boundingBox.min.y;
+
+                if (bottomY < GROUND_Y && obj.velocity.y < 0) {
+                    // Bounce
+                    obj.mesh.position.y += (GROUND_Y - bottomY);
+                    obj.velocity.y *= -BOUNCE_DAMPING;
+                    obj.velocity.x *= FRICTION;
+                    obj.velocity.z *= FRICTION;
+                    obj.angularVelocity.multiplyScalar(0.8);
+                    obj.bounces++;
+
+                    // Stop bouncing if too slow
+                    if (Math.abs(obj.velocity.y) < 0.5) {
+                        obj.velocity.y = 0;
+                        obj.grounded = true;
+                        obj.angularVelocity.set(0, 0, 0);
+                    }
+                }
+
+                // Fade out after time
+                if (obj.age > FADE_AFTER) {
+                    const fadeProgress = (obj.age - FADE_AFTER) / FADE_DURATION;
+                    if (fadeProgress >= 1) {
+                        // Remove object
+                        obj.mesh.parent.remove(obj.mesh);
+                        if (obj.mesh.geometry) obj.mesh.geometry.dispose();
+                        if (obj.mesh.material) {
+                            if (Array.isArray(obj.mesh.material)) {
+                                obj.mesh.material.forEach(m => m.dispose());
+                            } else {
+                                obj.mesh.material.dispose();
+                            }
+                        }
+                        physicsObjects.splice(i, 1);
+                    } else {
+                        // Fade opacity
+                        if (obj.mesh.material && !obj.mesh.material.transparent) {
+                            obj.mesh.material.transparent = true;
+                        }
+                        if (obj.mesh.material) {
+                            obj.mesh.material.opacity = 1 - fadeProgress;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Chop bamboo lathe geometry at intersection point
+        function chopBambooLathe(bambooMesh, intersectPoint) {
+            const bambooGroup = bambooMesh.parent;
+            const parent = bambooGroup.parent;
+
+            // Get world position of the bamboo group
+            const groupWorldPos = new THREE.Vector3();
+            bambooGroup.getWorldPosition(groupWorldPos);
+
+            // Get bounding box to determine height
+            const bbox = new THREE.Box3().setFromObject(bambooMesh);
+            const totalHeight = bbox.max.y - bbox.min.y;
+            const baseY = groupWorldPos.y;
+
+            // Calculate chop height
+            const chopY = intersectPoint.y;
+            const chopHeight = chopY - baseY;
+            const chopRatio = chopHeight / totalHeight;
+
+            if (chopRatio < 0.15 || chopRatio > 0.85) return; // Don't chop at extremes
+
+            const radius = 0.07;
+
+            // Create bottom piece (stays in place) - simple cylinder
+            const bottomGeo = new THREE.CylinderGeometry(radius, radius * 1.1, chopHeight, 8);
+            const bottomMat = bambooMesh.material.clone();
+            const bottomPiece = new THREE.Mesh(bottomGeo, bottomMat);
+            bottomPiece.position.set(groupWorldPos.x, baseY + chopHeight / 2, groupWorldPos.z);
+            parent.add(bottomPiece);
+
+            // Create top piece (falls with physics)
+            const topHeight = totalHeight - chopHeight;
+            const topGeo = new THREE.CylinderGeometry(radius * 0.9, radius, topHeight, 8);
+            const topMat = bambooMesh.material.clone();
+            const topPiece = new THREE.Mesh(topGeo, topMat);
+            topPiece.position.set(groupWorldPos.x, chopY + topHeight / 2, groupWorldPos.z);
+            parent.add(topPiece);
+
+            // Add leaves to top piece if original had them
+            bambooGroup.traverse(child => {
+                if (child !== bambooMesh && child.isMesh && child.material.color.getHex() === 0x5a9c2e) {
+                    // Clone leaf
+                    const leafClone = child.clone();
+                    const leafWorldPos = new THREE.Vector3();
+                    child.getWorldPosition(leafWorldPos);
+                    // Only include leaves above chop point
+                    if (leafWorldPos.y > chopY) {
+                        leafClone.position.copy(leafWorldPos);
+                        leafClone.position.y -= chopY;
+                        topPiece.add(leafClone);
+                    }
+                }
+            });
+
+            // Add physics to top piece - falls and tumbles
+            const fallDirection = new THREE.Vector3(
+                (Math.random() - 0.5) * 2,
+                0.5,
+                (Math.random() - 0.5) * 2
+            ).normalize();
+
+            physicsObjects.push(createPhysicsObject(topPiece,
+                fallDirection.multiplyScalar(2),
+                new THREE.Vector3((Math.random() - 0.5) * 2, 0, (Math.random() - 0.5) * 4)
+            ));
+
+            // Remove original bamboo group
+            parent.remove(bambooGroup);
+            bambooGroup.traverse(child => {
+                if (child.geometry) child.geometry.dispose();
+                if (child.material) {
+                    if (Array.isArray(child.material)) {
+                        child.material.forEach(m => m.dispose());
+                    } else {
+                        child.material.dispose();
+                    }
+                }
+            });
+        }
+
+        // Break rock into pieces
+        function breakRock(rockMesh, intersectPoint) {
+            const parent = rockMesh.parent || scene;
+            const worldPos = new THREE.Vector3();
+            rockMesh.getWorldPosition(worldPos);
+            const scale = rockMesh.scale.x;
+
+            // Create multiple smaller pieces
+            const pieceCount = 4 + Math.floor(Math.random() * 4);
+            for (let i = 0; i < pieceCount; i++) {
+                const size = 0.1 + Math.random() * 0.15;
+                const pieceGeo = new THREE.IcosahedronGeometry(size * scale, 0);
+                const pieceMat = rockMesh.material.clone();
+                const piece = new THREE.Mesh(pieceGeo, pieceMat);
+
+                piece.position.copy(worldPos);
+                piece.position.add(new THREE.Vector3(
+                    (Math.random() - 0.5) * 0.3,
+                    (Math.random() - 0.5) * 0.3,
+                    (Math.random() - 0.5) * 0.3
+                ));
+
+                parent.add(piece);
+
+                // Explode outward from hit point
+                const explodeDir = piece.position.clone().sub(intersectPoint).normalize();
+                physicsObjects.push(createPhysicsObject(piece,
+                    explodeDir.multiplyScalar(3 + Math.random() * 3),
+                    new THREE.Vector3(
+                        (Math.random() - 0.5) * 10,
+                        (Math.random() - 0.5) * 10,
+                        (Math.random() - 0.5) * 10
+                    )
+                ));
+            }
+
+            // Remove original rock
+            parent.remove(rockMesh);
+            rockMesh.geometry.dispose();
+        }
+
+        // Explode and reconstitute - for drift world floating stones
+        const reconstitutingObjects = []; // Track objects that are reconstituting
+
+        function explodeAndReconstitute(stoneMesh, intersectPoint) {
+            if (stoneMesh.userData.isExploding) return; // Already exploding
+
+            const parent = stoneMesh.parent || scene;
+            const originalPos = stoneMesh.position.clone();
+            const originalRot = stoneMesh.rotation.clone();
+            const originalScale = stoneMesh.scale.clone();
+            const originalUserData = { ...stoneMesh.userData };
+
+            // Hide original and its hitbox temporarily
+            stoneMesh.visible = false;
+            stoneMesh.userData.isExploding = true;
+            stoneMesh.userData.noInteract = true;  // Skip in raycasting
+            const linkedHitbox = stoneMesh.userData.linkedHitbox;
+            if (linkedHitbox) {
+                linkedHitbox.visible = false;
+                linkedHitbox.userData.noInteract = true;  // Skip in raycasting
+            }
+
+            // Get geometry faces/triangles
+            const geo = stoneMesh.geometry;
+            const posAttr = geo.attributes.position;
+            const pieces = [];
+
+            // Create triangular pieces from the geometry
+            const pieceCount = Math.min(12, Math.floor(posAttr.count / 3));
+            for (let i = 0; i < pieceCount; i++) {
+                // Create a small triangular piece
+                const pieceGeo = new THREE.TetrahedronGeometry(0.06 + Math.random() * 0.04, 0);
+                const pieceMat = stoneMesh.material.clone();
+                const piece = new THREE.Mesh(pieceGeo, pieceMat);
+                piece.castShadow = true;  // Shards cast shadows too
+                piece.userData.noInteract = true;  // Click through to clusters behind
+
+                // Start at stone center with random offset
+                const offset = new THREE.Vector3(
+                    (Math.random() - 0.5) * 0.2,
+                    (Math.random() - 0.5) * 0.2,
+                    (Math.random() - 0.5) * 0.2
+                );
+                piece.position.copy(originalPos).add(offset);
+                piece.rotation.set(
+                    Math.random() * Math.PI,
+                    Math.random() * Math.PI,
+                    Math.random() * Math.PI
+                );
+
+                parent.add(piece);
+
+                // Calculate explosion direction (outward from center)
+                const explodeDir = offset.clone().normalize();
+                if (explodeDir.length() < 0.1) {
+                    explodeDir.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).normalize();
+                }
+
+                pieces.push({
+                    mesh: piece,
+                    startPos: piece.position.clone(),
+                    targetPos: piece.position.clone().add(explodeDir.multiplyScalar(1.5 + Math.random())),
+                    originalOffset: offset,
+                    explodeDir: explodeDir,
+                    rotSpeed: new THREE.Vector3(
+                        (Math.random() - 0.5) * 15,
+                        (Math.random() - 0.5) * 15,
+                        (Math.random() - 0.5) * 15
+                    ),
+                    phase: 0 // 0 = exploding, 1 = hovering, 2 = reconstituting
+                });
+            }
+
+            // Add to reconstituting tracker
+            reconstitutingObjects.push({
+                original: stoneMesh,
+                pieces: pieces,
+                parent: parent,
+                originalPos: originalPos,
+                originalRot: originalRot,
+                originalScale: originalScale,
+                originalUserData: originalUserData,
+                time: 0,
+                explodeDuration: 0.3,
+                hoverDuration: 0.4,
+                reconstituteDuration: 0.5
+            });
+        }
+
+        // Update reconstituting objects (called in animate loop)
+        function updateReconstituting(deltaTime) {
+            for (let i = reconstitutingObjects.length - 1; i >= 0; i--) {
+                const obj = reconstitutingObjects[i];
+                obj.time += deltaTime;
+
+                const totalDuration = obj.explodeDuration + obj.hoverDuration + obj.reconstituteDuration;
+
+                for (const piece of obj.pieces) {
+                    if (obj.time < obj.explodeDuration) {
+                        // Phase 0: Exploding outward
+                        const t = obj.time / obj.explodeDuration;
+                        const easeOut = 1 - Math.pow(1 - t, 3);
+                        piece.mesh.position.lerpVectors(piece.startPos, piece.targetPos, easeOut);
+                    } else if (obj.time < obj.explodeDuration + obj.hoverDuration) {
+                        // Phase 1: Hovering/floating
+                        const hoverT = (obj.time - obj.explodeDuration) / obj.hoverDuration;
+                        const wobble = Math.sin(hoverT * Math.PI * 4) * 0.05;
+                        piece.mesh.position.copy(piece.targetPos);
+                        piece.mesh.position.y += wobble;
+                    } else {
+                        // Phase 2: Reconstituting
+                        const t = (obj.time - obj.explodeDuration - obj.hoverDuration) / obj.reconstituteDuration;
+                        const easeIn = t * t * t;
+                        const targetReturn = obj.originalPos.clone().add(piece.originalOffset.clone().multiplyScalar(0.1));
+                        piece.mesh.position.lerpVectors(piece.targetPos, targetReturn, easeIn);
+
+                        // Scale down as they merge
+                        const scale = 1 - easeIn * 0.5;
+                        piece.mesh.scale.setScalar(scale);
+                    }
+
+                    // Always rotate
+                    piece.mesh.rotation.x += piece.rotSpeed.x * deltaTime;
+                    piece.mesh.rotation.y += piece.rotSpeed.y * deltaTime;
+                    piece.mesh.rotation.z += piece.rotSpeed.z * deltaTime;
+                }
+
+                // Complete reconstitution
+                if (obj.time >= totalDuration) {
+                    // Remove pieces
+                    for (const piece of obj.pieces) {
+                        obj.parent.remove(piece.mesh);
+                        piece.mesh.geometry.dispose();
+                        piece.mesh.material.dispose();
+                    }
+
+                    // Restore original
+                    obj.original.visible = true;
+                    obj.original.userData = obj.originalUserData;
+                    obj.original.userData.isExploding = false;
+                    obj.original.userData.noInteract = false;  // Restore interactivity
+
+                    // Restore hitbox visibility and interactivity
+                    if (obj.original.userData.linkedHitbox) {
+                        obj.original.userData.linkedHitbox.visible = true;
+                        obj.original.userData.linkedHitbox.userData.noInteract = false;
+                    }
+
+                    // Remove from tracking
+                    reconstitutingObjects.splice(i, 1);
+                }
+            }
+        }
+
+        // Pick flower - petals scatter
+        function pickFlower(flowerGroup, intersectPoint) {
+            const parent = flowerGroup.parent || scene;
+            const worldPos = new THREE.Vector3();
+            flowerGroup.getWorldPosition(worldPos);
+
+            // Scatter all parts as physics objects
+            flowerGroup.traverse(child => {
+                if (child.isMesh) {
+                    const piece = child.clone();
+                    const childWorldPos = new THREE.Vector3();
+                    child.getWorldPosition(childWorldPos);
+                    piece.position.copy(childWorldPos);
+
+                    parent.add(piece);
+
+                    // Float upward and outward
+                    const scatterDir = new THREE.Vector3(
+                        (Math.random() - 0.5) * 2,
+                        2 + Math.random() * 2,
+                        (Math.random() - 0.5) * 2
+                    );
+                    physicsObjects.push(createPhysicsObject(piece, scatterDir));
+                }
+            });
+
+            // Remove original flower
+            parent.remove(flowerGroup);
+        }
+
+        // Bounce/squish cushion or soft object
+        function squishObject(mesh, intersectPoint) {
+            // Animate squish
+            const originalScale = mesh.scale.clone();
+            mesh.userData.squishing = true;
+            mesh.userData.squishTime = 0;
+            mesh.userData.originalScale = originalScale;
+        }
+
+        // Kick object (for toys, spinners, etc.)
+        function kickObject(mesh, intersectPoint, cameraPosition) {
+            // Calculate kick direction (away from camera)
+            const kickDir = mesh.position.clone().sub(cameraPosition).normalize();
+            kickDir.y = 0.5;
+            kickDir.normalize();
+
+            // Add physics if not already a physics object
+            const existingPhysObj = physicsObjects.find(p => p.mesh === mesh);
+            if (existingPhysObj) {
+                existingPhysObj.velocity.add(kickDir.multiplyScalar(5));
+                existingPhysObj.velocity.y = 3;
+                existingPhysObj.grounded = false;
+            } else {
+                // Clone and replace with physics version
+                const parent = mesh.parent;
+                const worldPos = new THREE.Vector3();
+                mesh.getWorldPosition(worldPos);
+
+                const kickedMesh = mesh.clone();
+                kickedMesh.position.copy(worldPos);
+                parent.add(kickedMesh);
+                parent.remove(mesh);
+
+                const physObj = createPhysicsObject(kickedMesh, kickDir.multiplyScalar(5));
+                physObj.velocity.y = 3;
+                physicsObjects.push(physObj);
+            }
+        }
+
+        // Shake tree - drop leaves
+        function shakeTree(treePart, intersectPoint) {
+            // Find tree group
+            let treeGroup = treePart;
+            while (treeGroup.parent && treeGroup.parent !== scene && !treeGroup.parent.isGroup) {
+                treeGroup = treeGroup.parent;
+            }
+            if (treeGroup.parent && treeGroup.parent.isGroup) {
+                treeGroup = treeGroup.parent;
+            }
+
+            const worldPos = new THREE.Vector3();
+            treeGroup.getWorldPosition(worldPos);
+
+            // Create falling leaves
+            const leafCount = 5 + Math.floor(Math.random() * 8);
+            for (let i = 0; i < leafCount; i++) {
+                const leafGeo = new THREE.PlaneGeometry(0.1, 0.15);
+                const leafMat = new THREE.MeshStandardMaterial({
+                    color: 0x2d5a27,
+                    side: THREE.DoubleSide,
+                    transparent: true
+                });
+                leafMat.color.setHSL(0.28 + Math.random() * 0.05, 0.5, 0.25 + Math.random() * 0.15);
+
+                const leaf = new THREE.Mesh(leafGeo, leafMat);
+                leaf.position.set(
+                    worldPos.x + (Math.random() - 0.5) * 2,
+                    worldPos.y + 2 + Math.random() * 3,
+                    worldPos.z + (Math.random() - 0.5) * 2
+                );
+                leaf.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, Math.random() * Math.PI);
+
+                scene.add(leaf);
+
+                // Slow falling with flutter
+                const physObj = createPhysicsObject(leaf,
+                    new THREE.Vector3((Math.random() - 0.5) * 2, -1, (Math.random() - 0.5) * 2),
+                    new THREE.Vector3(
+                        (Math.random() - 0.5) * 8,
+                        (Math.random() - 0.5) * 5,
+                        (Math.random() - 0.5) * 8
+                    )
+                );
+                // Leaves fall slower
+                physObj.leafFlutter = true;
+                physicsObjects.push(physObj);
+            }
+
+            // Shake animation
+            treeGroup.userData.shaking = true;
+            treeGroup.userData.shakeTime = 0;
+            treeGroup.userData.originalPos = treeGroup.position.clone();
+        }
+
+        // Pop mushroom
+        function popMushroom(mushroomGroup, intersectPoint) {
+            const parent = mushroomGroup.parent || scene;
+            const worldPos = new THREE.Vector3();
+            mushroomGroup.getWorldPosition(worldPos);
+
+            // Create spore particles
+            const sporeCount = 15 + Math.floor(Math.random() * 10);
+            for (let i = 0; i < sporeCount; i++) {
+                const sporeGeo = new THREE.SphereGeometry(0.02 + Math.random() * 0.02, 4, 4);
+                const sporeMat = new THREE.MeshBasicMaterial({
+                    color: 0xffffcc,
+                    transparent: true,
+                    opacity: 0.8
+                });
+                const spore = new THREE.Mesh(sporeGeo, sporeMat);
+                spore.position.copy(worldPos);
+                spore.position.y += 0.2;
+
+                parent.add(spore);
+
+                // Float upward and outward
+                physicsObjects.push(createPhysicsObject(spore,
+                    new THREE.Vector3(
+                        (Math.random() - 0.5) * 3,
+                        2 + Math.random() * 3,
+                        (Math.random() - 0.5) * 3
+                    )
+                ));
+            }
+
+            // Squish the mushroom down
+            mushroomGroup.scale.y = 0.3;
+            mushroomGroup.position.y -= 0.1;
+        }
+
+        // Zap voltage objects
+        function zapObject(mesh, intersectPoint) {
+            // Create electric spark effect
+            const parent = mesh.parent || scene;
+            const worldPos = new THREE.Vector3();
+            mesh.getWorldPosition(worldPos);
+
+            // Spark particles
+            for (let i = 0; i < 10; i++) {
+                const sparkGeo = new THREE.SphereGeometry(0.03, 4, 4);
+                const sparkMat = new THREE.MeshBasicMaterial({
+                    color: 0x00ffff,
+                    transparent: true,
+                    opacity: 1
+                });
+                const spark = new THREE.Mesh(sparkGeo, sparkMat);
+                spark.position.copy(intersectPoint);
+                parent.add(spark);
+
+                physicsObjects.push(createPhysicsObject(spark,
+                    new THREE.Vector3(
+                        (Math.random() - 0.5) * 8,
+                        Math.random() * 5,
+                        (Math.random() - 0.5) * 8
+                    )
+                ));
+            }
+
+            // Speed up spinner (with max speed limit)
+            if (mesh.userData.spinSpeedX !== undefined) {
+                const MAX_SPIN_MULTIPLIER = 5; // Max 5x original speed
+
+                // Store original speeds if not already stored
+                if (mesh.userData.originalSpinSpeedX === undefined) {
+                    mesh.userData.originalSpinSpeedX = mesh.userData.spinSpeedX;
+                    mesh.userData.originalSpinSpeedY = mesh.userData.spinSpeedY;
+                    mesh.userData.originalSpinSpeedZ = mesh.userData.spinSpeedZ;
+                }
+
+                const origX = mesh.userData.originalSpinSpeedX;
+                const origY = mesh.userData.originalSpinSpeedY;
+                const origZ = mesh.userData.originalSpinSpeedZ;
+
+                // Check if at or above max speed
+                const currentMultiplier = Math.abs(mesh.userData.spinSpeedX / origX);
+
+                if (currentMultiplier >= MAX_SPIN_MULTIPLIER) {
+                    // At max - start slowing down (halve the speed)
+                    mesh.userData.spinSpeedX *= 0.5;
+                    mesh.userData.spinSpeedY *= 0.5;
+                    mesh.userData.spinSpeedZ *= 0.5;
+
+                    // Don't go below original speed
+                    if (Math.abs(mesh.userData.spinSpeedX) < Math.abs(origX)) {
+                        mesh.userData.spinSpeedX = origX;
+                        mesh.userData.spinSpeedY = origY;
+                        mesh.userData.spinSpeedZ = origZ;
+                    }
+                } else {
+                    // Speed up
+                    mesh.userData.spinSpeedX *= 1.5;
+                    mesh.userData.spinSpeedY *= 1.5;
+                    mesh.userData.spinSpeedZ *= 1.5;
+                }
+            }
+        }
+
+        // Handle interaction based on object type and world
+        function handleInteraction(intersect) {
+            const mesh = intersect.object;
+            const point = intersect.point;
+
+            // Skip debris (already broken/interacted objects)
+            if (mesh.userData && mesh.userData.isDebris) return;
+
+            // Find which world this object belongs to
+            let objectWorld = null;
+            let parent = mesh.parent;
+            while (parent) {
+                if (parent === bambooWorld) { objectWorld = 'bamboo'; break; }
+                if (parent === lavaWorld) { objectWorld = 'lava'; break; }
+                if (parent === driftWorld) { objectWorld = 'drift'; break; }
+                if (parent === voltageWorld) { objectWorld = 'voltage'; break; }
+                if (parent === hearthWorld) { objectWorld = 'hearth'; break; }
+                if (parent === simmerWorld) { objectWorld = 'simmer'; break; }
+                if (parent === gladeWorld) { objectWorld = 'glade'; break; }
+                if (parent === grandWorld) { objectWorld = 'grand'; break; }
+                parent = parent.parent;
+            }
+
+            if (!objectWorld) return;
+
+            // Get original color (before texture) if available, otherwise current color
+            const originalMat = originalMaterials.get(mesh);
+            const color = originalMat && originalMat.color ? originalMat.color.getHex() :
+                         (mesh.material && mesh.material.color ? mesh.material.color.getHex() : 0);
+            const geoType = mesh.geometry ? mesh.geometry.type : '';
+
+            switch (objectWorld) {
+                case 'bamboo':
+                    // Bamboo stalk = LatheGeometry
+                    if (geoType === 'LatheGeometry') {
+                        chopBambooLathe(mesh, point);
+                    }
+                    // Leaves = small PlaneGeometry not on ground
+                    else if (geoType === 'PlaneGeometry' && Math.abs(mesh.rotation.x) < 0.5) {
+                        kickObject(mesh, point, camera.position);
+                    }
+                    break;
+
+                case 'lava':
+                    // Break lava rocks (IcosahedronGeometry or DodecahedronGeometry)
+                    if (geoType === 'IcosahedronGeometry' || geoType === 'DodecahedronGeometry' ||
+                        geoType === 'BufferGeometry') {
+                        // Skip the ground plane
+                        if (mesh.rotation.x !== -Math.PI / 2) {
+                            breakRock(mesh, point);
+                        }
+                    }
+                    break;
+
+                case 'drift':
+                    // Floating stones explode and reconstitute based on userData
+                    if (mesh.userData && mesh.userData.floatSpeed !== undefined) {
+                        // If it's a hitbox, use the linked stone
+                        const targetStone = mesh.userData.linkedStone || mesh;
+                        // Skip if this stone is already exploding
+                        if (!targetStone.userData.isHitbox && !targetStone.userData.isExploding) {
+                            explodeAndReconstitute(targetStone, point);
+                        }
+                    }
+                    // Papers flutter away
+                    else if (geoType === 'PlaneGeometry' && mesh.rotation.x !== -Math.PI / 2) {
+                        kickObject(mesh, point, camera.position);
+                    }
+                    break;
+
+                case 'voltage':
+                    // Zap spinners - anything with spin userData
+                    if (mesh.userData && mesh.userData.spinSpeedX !== undefined) {
+                        zapObject(mesh, point);
+                    }
+                    break;
+
+                case 'hearth':
+                    // Squish cushions and soft things (spheres not on ground)
+                    if (geoType === 'SphereGeometry' && mesh.position.y > 0) {
+                        squishObject(mesh, point);
+                    }
+                    break;
+
+                case 'simmer':
+                    // Kick toys around - objects with restlessness or velocity userData
+                    if (mesh.userData && (mesh.userData.restlessness !== undefined ||
+                        mesh.userData.velocity !== undefined)) {
+                        kickObject(mesh, point, camera.position);
+                    }
+                    // Also kick containers
+                    else if (geoType === 'CylinderGeometry') {
+                        kickObject(mesh, point, camera.position);
+                    }
+                    break;
+
+                case 'glade':
+                    // Trees: CylinderGeometry (trunk) or IcosahedronGeometry (canopy)
+                    if (geoType === 'CylinderGeometry' ||
+                        (geoType === 'IcosahedronGeometry' && mesh.position.y > 1)) {
+                        shakeTree(mesh, point);
+                    }
+                    // Mushroom: parent is a group with SphereGeometry cap
+                    else if (mesh.parent && mesh.parent.isGroup &&
+                             mesh.parent.children.some(c => c.geometry &&
+                             c.geometry.type === 'SphereGeometry' && c.geometry.parameters &&
+                             c.geometry.parameters.phiLength === Math.PI)) {
+                        popMushroom(mesh.parent, point);
+                    }
+                    // Flowers: groups with multiple small parts
+                    else if (mesh.parent && mesh.parent.isGroup &&
+                             mesh.parent.children.length > 3 &&
+                             mesh.parent.userData && mesh.parent.userData.swayPhase !== undefined) {
+                        pickFlower(mesh.parent, point);
+                    }
+                    // Grass blades
+                    else if (geoType === 'PlaneGeometry' && mesh.userData && mesh.userData.swayPhase !== undefined) {
+                        kickObject(mesh, point, camera.position);
+                    }
+                    break;
+
+                case 'grand':
+                    // Trees: CylinderGeometry (trunk) or ConeGeometry (canopy)
+                    if (geoType === 'CylinderGeometry' || geoType === 'ConeGeometry') {
+                        shakeTree(mesh, point);
+                    }
+                    // Mountains: large ConeGeometry on ground
+                    else if (geoType === 'ConeGeometry' && mesh.position.y > 5) {
+                        breakRock(mesh, point);
+                    }
+                    break;
+            }
+        }
+
+        // Interaction cooldown to prevent spam
+        let lastInteractionTime = 0;
+        const INTERACTION_COOLDOWN = 100; // ms between interactions
+
+        // Mouse/touch interaction handler
+        function onInteract(event) {
+            if (!interactiveMode) return;
+
+            // Cooldown check
+            const now = performance.now();
+            if (now - lastInteractionTime < INTERACTION_COOLDOWN) return;
+            lastInteractionTime = now;
+
+            event.preventDefault();
+
+            // Get normalized device coordinates
+            const rect = renderer.domElement.getBoundingClientRect();
+            let clientX, clientY;
+
+            if (event.touches) {
+                clientX = event.touches[0].clientX;
+                clientY = event.touches[0].clientY;
+            } else {
+                clientX = event.clientX;
+                clientY = event.clientY;
+            }
+
+            interactiveMouse.x = ((clientX - rect.left) / rect.width) * 2 - 1;
+            interactiveMouse.y = -((clientY - rect.top) / rect.height) * 2 + 1;
+
+            // Raycast
+            interactiveRaycaster.setFromCamera(interactiveMouse, camera);
+
+            // Get current world objects to check
+            const worldToCheck = currentScale === 'grand' ? grandWorld :
+                (currentWorld === 'bamboo' ? bambooWorld :
+                 currentWorld === 'lava' ? lavaWorld :
+                 currentWorld === 'drift' ? driftWorld :
+                 currentWorld === 'voltage' ? voltageWorld :
+                 currentWorld === 'hearth' ? hearthWorld :
+                 currentWorld === 'simmer' ? simmerWorld :
+                 currentWorld === 'glade' ? gladeWorld : null);
+
+            if (!worldToCheck) return;
+
+            const intersects = interactiveRaycaster.intersectObjects(worldToCheck.children, true);
+
+            if (intersects.length > 0) {
+                // Find first non-ground, non-character, interactive intersection
+                for (const intersect of intersects) {
+                    const obj = intersect.object;
+                    // Skip non-interactive objects (dust, particles, etc.)
+                    if (obj.userData && obj.userData.noInteract) continue;
+                    // Skip ground planes and character
+                    if (obj.geometry && obj.geometry.type === 'PlaneGeometry' &&
+                        obj.rotation.x === -Math.PI / 2) continue;
+                    if (obj.geometry && obj.geometry.type === 'CircleGeometry' &&
+                        obj.rotation.x === -Math.PI / 2) continue;
+                    if (obj === currentCharacter.body) continue;
+
+                    handleInteraction(intersect);
+                    break;
+                }
+            }
+        }
+
+        // Add event listeners for interaction
+        renderer.domElement.addEventListener('click', onInteract);
+        renderer.domElement.addEventListener('touchstart', onInteract, { passive: false });
+
+        // ============================================
+        // CRYPTIC SCRIPTS - Mystical floating text
+        // ============================================
+        let crypticEnabled = false;
+        const crypticGroup = new THREE.Group();
+        crypticGroup.visible = false;
+        scene.add(crypticGroup);
+
+        // Cryptic symbols and scripts
+        const crypticChars = [
+            'ᚠ', 'ᚢ', 'ᚦ', 'ᚨ', 'ᚱ', 'ᚲ', 'ᚷ', 'ᚹ', 'ᚺ', 'ᚾ', 'ᛁ', 'ᛃ', 'ᛇ', 'ᛈ', 'ᛉ', 'ᛊ', // Runes
+            'ψ', 'Ω', 'φ', 'λ', 'Σ', 'Δ', 'Θ', 'Ξ', 'Π', // Greek
+            '☯', '⚡', '∞', '◊', '△', '○', '□', '☽', '☀', '★', '⬡', // Symbols
+            'ア', 'カ', 'サ', 'タ', 'ナ', 'ハ', 'マ', 'ヤ', 'ラ', 'ワ', // Katakana
+            '𐤀', '𐤁', '𐤂', '𐤃', '𐤄', '𐤅', '𐤆', '𐤇', '𐤈', '𐤉', // Phoenician
+            '𓀀', '𓁿', '𓂀', '𓃭', '𓆣', '𓇳', '𓊽', '𓏲', // Egyptian-style
+        ];
+
+        // Generate a glyph texture
+        function generateGlyphTexture(char, color = '#aaccff') {
+            const canvas = document.createElement('canvas');
+            canvas.width = 64;
+            canvas.height = 64;
+            const ctx = canvas.getContext('2d');
+
+            ctx.fillStyle = color;
+            ctx.font = 'bold 48px serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(char, 32, 32);
+
+            const texture = new THREE.CanvasTexture(canvas);
+            texture.needsUpdate = true;
+            return texture;
+        }
+
+        // Pre-generate some glyph textures
+        const glyphTextures = [];
+        const glyphColors = ['#aaccff', '#ffaacc', '#aaffcc', '#ffffaa', '#ccaaff', '#ffffff'];
+        for (let i = 0; i < 30; i++) {
+            const char = crypticChars[Math.floor(Math.random() * crypticChars.length)];
+            const color = glyphColors[Math.floor(Math.random() * glyphColors.length)];
+            glyphTextures.push(generateGlyphTexture(char, color));
+        }
+
+        // Floating ribbon streams of glyphs
+        const glyphRibbons = [];
+        const RIBBON_COUNT = 8;
+        const GLYPHS_PER_RIBBON = 12;
+
+        for (let r = 0; r < RIBBON_COUNT; r++) {
+            const ribbon = {
+                glyphs: [],
+                baseAngle: (r / RIBBON_COUNT) * Math.PI * 2,
+                radius: 4 + Math.random() * 4,
+                height: Math.random() * 3,
+                speed: 0.2 + Math.random() * 0.3,
+                verticalSpeed: 0.1 + Math.random() * 0.2,
+                waveAmplitude: 0.5 + Math.random() * 1,
+                waveFrequency: 1 + Math.random() * 2,
+            };
+
+            for (let g = 0; g < GLYPHS_PER_RIBBON; g++) {
+                const texture = glyphTextures[Math.floor(Math.random() * glyphTextures.length)];
+                const spriteMat = new THREE.SpriteMaterial({
+                    map: texture,
+                    transparent: true,
+                    opacity: 0.6 + Math.random() * 0.3,
+                    blending: THREE.AdditiveBlending,
+                });
+                const sprite = new THREE.Sprite(spriteMat);
+                sprite.scale.set(0.3 + Math.random() * 0.2, 0.3 + Math.random() * 0.2, 1);
+                sprite.userData = {
+                    ribbonOffset: g / GLYPHS_PER_RIBBON,
+                    phaseOffset: Math.random() * Math.PI * 2,
+                    rotSpeed: (Math.random() - 0.5) * 2,
+                };
+                ribbon.glyphs.push(sprite);
+                crypticGroup.add(sprite);
+            }
+
+            glyphRibbons.push(ribbon);
+        }
+
+        // Orbiting glyphs around the character
+        const orbitingGlyphs = [];
+        const ORBIT_COUNT = 6;
+
+        for (let i = 0; i < ORBIT_COUNT; i++) {
+            const texture = glyphTextures[Math.floor(Math.random() * glyphTextures.length)];
+            const spriteMat = new THREE.SpriteMaterial({
+                map: texture,
+                transparent: true,
+                opacity: 0.8,
+                blending: THREE.AdditiveBlending,
+            });
+            const sprite = new THREE.Sprite(spriteMat);
+            sprite.scale.set(0.25, 0.25, 1);
+            sprite.userData = {
+                orbitRadius: 1.2 + Math.random() * 0.5,
+                orbitSpeed: 0.5 + Math.random() * 0.5,
+                orbitPhase: (i / ORBIT_COUNT) * Math.PI * 2,
+                orbitTilt: (Math.random() - 0.5) * 0.5,
+                bobSpeed: 1 + Math.random(),
+                bobAmount: 0.1 + Math.random() * 0.1,
+            };
+            orbitingGlyphs.push(sprite);
+            crypticGroup.add(sprite);
+        }
+
+        // Floating overlay glyphs on world objects
+        const overlayGlyphs = [];
+
+        function createOverlayGlyph(position, scale = 0.4) {
+            const texture = glyphTextures[Math.floor(Math.random() * glyphTextures.length)];
+            const spriteMat = new THREE.SpriteMaterial({
+                map: texture,
+                transparent: true,
+                opacity: 0.5,
+                blending: THREE.AdditiveBlending,
+            });
+            const sprite = new THREE.Sprite(spriteMat);
+            sprite.position.copy(position);
+            sprite.scale.set(scale, scale, 1);
+            sprite.userData = {
+                basePos: position.clone(),
+                floatSpeed: 0.5 + Math.random() * 0.5,
+                floatPhase: Math.random() * Math.PI * 2,
+                floatAmount: 0.1 + Math.random() * 0.1,
+                pulseSpeed: 1 + Math.random() * 2,
+            };
+            overlayGlyphs.push(sprite);
+            crypticGroup.add(sprite);
+            return sprite;
+        }
+
+        // Scatter some overlay glyphs in the scene
+        for (let i = 0; i < 20; i++) {
+            const angle = Math.random() * Math.PI * 2;
+            const radius = 2 + Math.random() * 5;
+            const pos = new THREE.Vector3(
+                Math.cos(angle) * radius,
+                0.5 + Math.random() * 3,
+                Math.sin(angle) * radius
+            );
+            createOverlayGlyph(pos, 0.3 + Math.random() * 0.3);
+        }
+
+        // Update cryptic elements
+        function updateCrypticScripts(time) {
+            if (!crypticEnabled) return;
+
+            // Update ribbon streams
+            glyphRibbons.forEach(ribbon => {
+                ribbon.glyphs.forEach(glyph => {
+                    const u = glyph.userData;
+                    const t = time * ribbon.speed + u.ribbonOffset * Math.PI * 2;
+
+                    // Spiral motion with wave
+                    const angle = ribbon.baseAngle + t;
+                    const wave = Math.sin(t * ribbon.waveFrequency + u.phaseOffset) * ribbon.waveAmplitude;
+
+                    glyph.position.x = Math.cos(angle) * (ribbon.radius + wave * 0.5);
+                    glyph.position.z = Math.sin(angle) * (ribbon.radius + wave * 0.5);
+                    glyph.position.y = ribbon.height + Math.sin(time * ribbon.verticalSpeed + u.ribbonOffset * Math.PI * 4) * 1.5 + wave;
+
+                    // Fade based on position
+                    glyph.material.opacity = 0.3 + Math.sin(t * 2 + u.phaseOffset) * 0.3;
+
+                    // Rotate (sprites face camera but we can adjust scale for effect)
+                    const pulse = 1 + Math.sin(time * 3 + u.phaseOffset) * 0.1;
+                    glyph.scale.set(0.3 * pulse, 0.3 * pulse, 1);
+                });
+            });
+
+            // Update orbiting glyphs around character
+            const charPos = currentCharacter.body ? currentCharacter.body.position : new THREE.Vector3(0, 2, 0);
+            orbitingGlyphs.forEach(glyph => {
+                const u = glyph.userData;
+                const angle = time * u.orbitSpeed + u.orbitPhase;
+
+                glyph.position.x = charPos.x + Math.cos(angle) * u.orbitRadius;
+                glyph.position.z = charPos.z + Math.sin(angle) * u.orbitRadius;
+                glyph.position.y = charPos.y + 0.5 + Math.sin(angle * 0.5) * u.orbitTilt + Math.sin(time * u.bobSpeed) * u.bobAmount;
+
+                // Pulse opacity
+                glyph.material.opacity = 0.5 + Math.sin(time * 2 + u.orbitPhase) * 0.3;
+            });
+
+            // Update overlay glyphs
+            overlayGlyphs.forEach(glyph => {
+                const u = glyph.userData;
+                glyph.position.y = u.basePos.y + Math.sin(time * u.floatSpeed + u.floatPhase) * u.floatAmount;
+
+                // Pulse effect
+                const pulse = 0.4 + Math.sin(time * u.pulseSpeed + u.floatPhase) * 0.2;
+                glyph.material.opacity = pulse;
+            });
+        }
+
+        // Toggle cryptic scripts
+        function toggleCrypticScripts(enabled) {
+            crypticEnabled = enabled;
+            crypticGroup.visible = enabled;
+        }
+
+        // Apply/remove texture to sphere only
+        function applySphereTexture() {
+            if (currentCharacter && currentCharacter.body) {
+                if (!sphereOriginalMaterial) {
+                    sphereOriginalMaterial = currentCharacter.body.material;
+                }
+                currentCharacter.body.material = new THREE.MeshStandardMaterial({
+                    map: sceneTextures.sphere,
+                    roughness: 0.3,
+                    metalness: 0.7,
+                    envMapIntensity: 0.5
+                });
+            }
+        }
+
+        function removeSphereTexture() {
+            if (currentCharacter && currentCharacter.body && sphereOriginalMaterial) {
+                if (currentCharacter.body.material !== sphereOriginalMaterial) {
+                    currentCharacter.body.material.dispose();
+                }
+                currentCharacter.body.material = sphereOriginalMaterial;
+            }
+        }
+
+        // Create tapered grass blade geometry
+        function createGrassBladeGeometry() {
+            const geo = new THREE.BufferGeometry();
+            const verts = new Float32Array([
+                -0.02, 0, 0,      // base left
+                0.02, 0, 0,       // base right
+                0.015, 0.15, 0,   // mid right
+                -0.015, 0.15, 0,  // mid left
+                0.008, 0.3, 0,    // upper right
+                -0.008, 0.3, 0,   // upper left
+                0, 0.4, 0         // tip
+            ]);
+            const indices = [0,1,2, 0,2,3, 3,2,4, 3,4,5, 5,4,6];
+            geo.setAttribute('position', new THREE.BufferAttribute(verts, 3));
+            geo.setIndex(indices);
+            geo.computeVertexNormals();
+            return geo;
+        }
+
+        // BAMBOO high detail - dense grass, flowers, pollen
+        (function createBambooHD() {
+            const group = highDetailGroups.bamboo;
+            const grassGeo = createGrassBladeGeometry();
+            const grassMat = new THREE.MeshBasicMaterial({ color: 0x4a7c23, side: THREE.DoubleSide });
+            const grassCount = 5000;
+            const grass = new THREE.InstancedMesh(grassGeo, grassMat, grassCount);
+            for (let i = 0; i < grassCount; i++) {
+                const a = Math.random() * Math.PI * 2;
+                const d = 1 + Math.random() * 8;
+                hdDummy.position.set(Math.cos(a) * d, 0, Math.sin(a) * d);
+                hdDummy.rotation.set(Math.random() * 0.2 - 0.1, Math.random() * Math.PI, 0);
+                hdDummy.scale.set(0.8 + Math.random() * 0.4, 0.6 + Math.random() * 0.8, 1);
+                hdDummy.updateMatrix();
+                grass.setMatrixAt(i, hdDummy.matrix);
+            }
+            grass.instanceMatrix.needsUpdate = true;
+            group.add(grass);
+
+            // Small wildflowers
+            const flowerGeo = new THREE.SphereGeometry(0.05, 4, 3);
+            const flowerMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+            const flowerColors = [0xffff77, 0xffffff, 0xffaacc, 0xaaddff];
+            const flowers = new THREE.InstancedMesh(flowerGeo, flowerMat, 200);
+            for (let i = 0; i < 200; i++) {
+                const a = Math.random() * Math.PI * 2;
+                const d = 1 + Math.random() * 7;
+                hdDummy.position.set(Math.cos(a) * d, 0.1 + Math.random() * 0.15, Math.sin(a) * d);
+                hdDummy.scale.setScalar(0.5 + Math.random() * 1);
+                hdDummy.updateMatrix();
+                flowers.setMatrixAt(i, hdDummy.matrix);
+                flowers.setColorAt(i, new THREE.Color(flowerColors[i % flowerColors.length]));
+            }
+            flowers.instanceMatrix.needsUpdate = true;
+            if (flowers.instanceColor) flowers.instanceColor.needsUpdate = true;
+            group.add(flowers);
+        })();
+
+        // LAVA high detail - glowing cracks, embers, ash
+        (function createLavaHD() {
+            const group = highDetailGroups.lava;
+
+            // Glowing ground cracks
+            const crackMat = new THREE.MeshBasicMaterial({ color: 0xff4400 });
+            for (let i = 0; i < 30; i++) {
+                const crack = new THREE.Mesh(
+                    new THREE.PlaneGeometry(0.03, 0.5 + Math.random() * 1),
+                    crackMat
+                );
+                crack.rotation.x = -Math.PI / 2;
+                crack.rotation.z = Math.random() * Math.PI;
+                const a = Math.random() * Math.PI * 2;
+                const d = 1 + Math.random() * 6;
+                crack.position.set(Math.cos(a) * d, 0.01, Math.sin(a) * d);
+                group.add(crack);
+            }
+
+            // Floating embers (Points)
+            const emberCount = 100;
+            const emberPos = new Float32Array(emberCount * 3);
+            for (let i = 0; i < emberCount; i++) {
+                emberPos[i * 3] = (Math.random() - 0.5) * 12;
+                emberPos[i * 3 + 1] = Math.random() * 5;
+                emberPos[i * 3 + 2] = (Math.random() - 0.5) * 12;
+            }
+            const emberGeo = new THREE.BufferGeometry();
+            emberGeo.setAttribute('position', new THREE.BufferAttribute(emberPos, 3));
+            const embers = new THREE.Points(emberGeo, new THREE.PointsMaterial({
+                color: 0xff6600, size: 0.08, transparent: true, opacity: 0.9
+            }));
+            embers.userData = { geo: emberGeo, basePositions: emberPos.slice() };
+            group.add(embers);
+
+            // Ash particles
+            const ashCount = 60;
+            const ashPos = new Float32Array(ashCount * 3);
+            for (let i = 0; i < ashCount; i++) {
+                ashPos[i * 3] = (Math.random() - 0.5) * 15;
+                ashPos[i * 3 + 1] = Math.random() * 6;
+                ashPos[i * 3 + 2] = (Math.random() - 0.5) * 15;
+            }
+            const ashGeo = new THREE.BufferGeometry();
+            ashGeo.setAttribute('position', new THREE.BufferAttribute(ashPos, 3));
+            const ash = new THREE.Points(ashGeo, new THREE.PointsMaterial({
+                color: 0x444444, size: 0.05, transparent: true, opacity: 0.6
+            }));
+            ash.userData = { geo: ashGeo, basePositions: ashPos.slice() };
+            group.add(ash);
+        })();
+
+        // DRIFT high detail - dust motes in light, floating papers
+        (function createDriftHD() {
+            const group = highDetailGroups.drift;
+
+            // Warm dust motes
+            const moteCount = 80;
+            const motePos = new Float32Array(moteCount * 3);
+            for (let i = 0; i < moteCount; i++) {
+                motePos[i * 3] = (Math.random() - 0.5) * 10;
+                motePos[i * 3 + 1] = 0.5 + Math.random() * 4;
+                motePos[i * 3 + 2] = (Math.random() - 0.5) * 10;
+            }
+            const moteGeo = new THREE.BufferGeometry();
+            moteGeo.setAttribute('position', new THREE.BufferAttribute(motePos, 3));
+            const motes = new THREE.Points(moteGeo, new THREE.PointsMaterial({
+                color: 0xffddaa, size: 0.04, transparent: true, opacity: 0.5
+            }));
+            motes.userData = { geo: moteGeo, basePositions: motePos.slice() };
+            group.add(motes);
+
+            // Tiny floating paper scraps
+            const paperGeo = new THREE.PlaneGeometry(0.15, 0.1);
+            const paperMat = new THREE.MeshBasicMaterial({ color: 0xeeddcc, side: THREE.DoubleSide, transparent: true, opacity: 0.7 });
+            for (let i = 0; i < 25; i++) {
+                const paper = new THREE.Mesh(paperGeo, paperMat);
+                paper.position.set((Math.random() - 0.5) * 8, 1 + Math.random() * 3, (Math.random() - 0.5) * 8);
+                paper.rotation.set(Math.random(), Math.random(), Math.random());
+                paper.userData = { baseY: paper.position.y, phase: Math.random() * Math.PI * 2 };
+                group.add(paper);
+            }
+        })();
+
+        // VOLTAGE high detail - sparks, electric arcs, glowing dots
+        (function createVoltageHD() {
+            const group = highDetailGroups.voltage;
+
+            // Electric sparks (Points)
+            const sparkCount = 120;
+            const sparkPos = new Float32Array(sparkCount * 3);
+            for (let i = 0; i < sparkCount; i++) {
+                sparkPos[i * 3] = (Math.random() - 0.5) * 12;
+                sparkPos[i * 3 + 1] = Math.random() * 5;
+                sparkPos[i * 3 + 2] = (Math.random() - 0.5) * 12;
+            }
+            const sparkGeo = new THREE.BufferGeometry();
+            sparkGeo.setAttribute('position', new THREE.BufferAttribute(sparkPos, 3));
+            const sparks = new THREE.Points(sparkGeo, new THREE.PointsMaterial({
+                color: 0x88ccff, size: 0.06, transparent: true, opacity: 0.8
+            }));
+            sparks.userData = { geo: sparkGeo };
+            group.add(sparks);
+
+            // Glowing floor circuit lines
+            const lineMat = new THREE.MeshBasicMaterial({ color: 0x4488ff });
+            for (let i = 0; i < 20; i++) {
+                const line = new THREE.Mesh(new THREE.PlaneGeometry(0.02, 1 + Math.random() * 2), lineMat);
+                line.rotation.x = -Math.PI / 2;
+                line.rotation.z = Math.random() * Math.PI;
+                const a = Math.random() * Math.PI * 2;
+                const d = 1 + Math.random() * 5;
+                line.position.set(Math.cos(a) * d, 0.01, Math.sin(a) * d);
+                group.add(line);
+            }
+        })();
+
+        // HEARTH high detail - warm particles, soft dust
+        (function createHearthHD() {
+            const group = highDetailGroups.hearth;
+
+            // Warm floating particles like firelight
+            const warmCount = 60;
+            const warmPos = new Float32Array(warmCount * 3);
+            for (let i = 0; i < warmCount; i++) {
+                warmPos[i * 3] = (Math.random() - 0.5) * 10;
+                warmPos[i * 3 + 1] = 0.5 + Math.random() * 4;
+                warmPos[i * 3 + 2] = (Math.random() - 0.5) * 10;
+            }
+            const warmGeo = new THREE.BufferGeometry();
+            warmGeo.setAttribute('position', new THREE.BufferAttribute(warmPos, 3));
+            const warm = new THREE.Points(warmGeo, new THREE.PointsMaterial({
+                color: 0xffaa66, size: 0.05, transparent: true, opacity: 0.6
+            }));
+            warm.userData = { geo: warmGeo, basePositions: warmPos.slice() };
+            group.add(warm);
+
+            // Soft fabric texture patches on floor
+            const fabricGeo = new THREE.CircleGeometry(0.3, 8);
+            const fabricMat = new THREE.MeshBasicMaterial({ color: 0xddccbb, transparent: true, opacity: 0.3 });
+            for (let i = 0; i < 15; i++) {
+                const patch = new THREE.Mesh(fabricGeo, fabricMat);
+                patch.rotation.x = -Math.PI / 2;
+                const a = Math.random() * Math.PI * 2;
+                const d = 1 + Math.random() * 5;
+                patch.position.set(Math.cos(a) * d, 0.01, Math.sin(a) * d);
+                group.add(patch);
+            }
+        })();
+
+        // SIMMER high detail - steam wisps, scattered small debris
+        (function createSimmerHD() {
+            const group = highDetailGroups.simmer;
+
+            // Rising steam/heat particles
+            const steamCount = 80;
+            const steamPos = new Float32Array(steamCount * 3);
+            for (let i = 0; i < steamCount; i++) {
+                steamPos[i * 3] = (Math.random() - 0.5) * 10;
+                steamPos[i * 3 + 1] = Math.random() * 4;
+                steamPos[i * 3 + 2] = (Math.random() - 0.5) * 10;
+            }
+            const steamGeo = new THREE.BufferGeometry();
+            steamGeo.setAttribute('position', new THREE.BufferAttribute(steamPos, 3));
+            const steam = new THREE.Points(steamGeo, new THREE.PointsMaterial({
+                color: 0xff8866, size: 0.07, transparent: true, opacity: 0.4
+            }));
+            steam.userData = { geo: steamGeo, basePositions: steamPos.slice() };
+            group.add(steam);
+
+            // Small debris/crumbs
+            const debrisGeo = new THREE.BoxGeometry(0.03, 0.03, 0.03);
+            const debrisMat = new THREE.MeshBasicMaterial({ color: 0x886655 });
+            const debris = new THREE.InstancedMesh(debrisGeo, debrisMat, 80);
+            for (let i = 0; i < 80; i++) {
+                const a = Math.random() * Math.PI * 2;
+                const d = 0.5 + Math.random() * 6;
+                hdDummy.position.set(Math.cos(a) * d, 0.02, Math.sin(a) * d);
+                hdDummy.rotation.set(Math.random(), Math.random(), Math.random());
+                hdDummy.updateMatrix();
+                debris.setMatrixAt(i, hdDummy.matrix);
+            }
+            debris.instanceMatrix.needsUpdate = true;
+            group.add(debris);
+        })();
+
+        // GLADE high detail - dense grass, butterflies, pollen
+        (function createGladeHD() {
+            const group = highDetailGroups.glade;
+            const grassGeo = createGrassBladeGeometry();
+            const grassMat = new THREE.MeshBasicMaterial({ color: 0x5a9c33, side: THREE.DoubleSide });
+            const grassCount = 6000;
+            const grass = new THREE.InstancedMesh(grassGeo, grassMat, grassCount);
+            for (let i = 0; i < grassCount; i++) {
+                const a = Math.random() * Math.PI * 2;
+                const d = 1 + Math.random() * 10;
+                hdDummy.position.set(Math.cos(a) * d, 0, Math.sin(a) * d);
+                hdDummy.rotation.set(Math.random() * 0.15 - 0.075, Math.random() * Math.PI, 0);
+                hdDummy.scale.set(0.7 + Math.random() * 0.5, 0.5 + Math.random() * 1, 1);
+                hdDummy.updateMatrix();
+                grass.setMatrixAt(i, hdDummy.matrix);
+            }
+            grass.instanceMatrix.needsUpdate = true;
+            group.add(grass);
+
+            // Pollen/spores
+            const pollenCount = 50;
+            const pollenPos = new Float32Array(pollenCount * 3);
+            for (let i = 0; i < pollenCount; i++) {
+                pollenPos[i * 3] = (Math.random() - 0.5) * 15;
+                pollenPos[i * 3 + 1] = 1 + Math.random() * 4;
+                pollenPos[i * 3 + 2] = (Math.random() - 0.5) * 15;
+            }
+            const pollenGeo = new THREE.BufferGeometry();
+            pollenGeo.setAttribute('position', new THREE.BufferAttribute(pollenPos, 3));
+            const pollen = new THREE.Points(pollenGeo, new THREE.PointsMaterial({
+                color: 0xffffaa, size: 0.04, transparent: true, opacity: 0.6
+            }));
+            pollen.userData = { geo: pollenGeo, basePositions: pollenPos.slice() };
+            group.add(pollen);
+        })();
+
+        // Animate high/super/texture detail elements
+        function animateHighDetail(time) {
+            if (detailLevel === 'normal') return;
+
+            // Update shader time uniforms
+            shellGrassUniforms.time.value = time;
+            textureUniforms.time.value = time;
+
+            // Animate high detail
+            if (detailLevel === 'high') {
+                const group = highDetailGroups[currentWorld];
+                if (!group) return;
+
+                group.children.forEach(child => {
+                    if (child.userData.geo) {
+                        const positions = child.userData.geo.attributes.position.array;
+                        const base = child.userData.basePositions;
+                        if (base) {
+                            for (let i = 0; i < positions.length / 3; i++) {
+                                const phase = i * 0.5;
+                                positions[i * 3] = base[i * 3] + Math.sin(time * 0.3 + phase) * 0.3;
+                                positions[i * 3 + 1] = base[i * 3 + 1] + Math.sin(time * 0.5 + phase) * 0.2;
+                                positions[i * 3 + 2] = base[i * 3 + 2] + Math.cos(time * 0.4 + phase) * 0.3;
+                            }
+                            child.userData.geo.attributes.position.needsUpdate = true;
+                        }
+                    }
+                    if (child.userData.baseY !== undefined) {
+                        child.position.y = child.userData.baseY + Math.sin(time * 0.5 + child.userData.phase) * 0.3;
+                        child.rotation.z = Math.sin(time * 0.3 + child.userData.phase) * 0.2;
+                    }
+                });
+            }
+
+            // Animate super detail particles
+            if (detailLevel === 'super') {
+                const group = superDetailGroups[currentWorld];
+                if (!group) return;
+
+                group.children.forEach(child => {
+                    if (child.userData.geo && child.userData.basePositions) {
+                        const positions = child.userData.geo.attributes.position.array;
+                        const base = child.userData.basePositions;
+                        const count = positions.length / 3;
+
+                        for (let i = 0; i < count; i++) {
+                            const phase = i * 0.3;
+
+                            if (child.userData.isEmber) {
+                                // Embers rise and flicker
+                                positions[i * 3] = base[i * 3] + Math.sin(time + phase) * 0.5;
+                                positions[i * 3 + 1] = (base[i * 3 + 1] + time * 0.3 + phase * 0.1) % 8;
+                                positions[i * 3 + 2] = base[i * 3 + 2] + Math.cos(time * 0.8 + phase) * 0.5;
+                            } else if (child.userData.isSpark) {
+                                // Sparks jitter erratically
+                                positions[i * 3] = base[i * 3] + Math.sin(time * 5 + phase * 10) * 0.2;
+                                positions[i * 3 + 1] = base[i * 3 + 1] + Math.sin(time * 4 + phase * 8) * 0.15;
+                                positions[i * 3 + 2] = base[i * 3 + 2] + Math.cos(time * 6 + phase * 12) * 0.2;
+                            } else if (child.userData.rising) {
+                                // Steam rises
+                                positions[i * 3] = base[i * 3] + Math.sin(time * 0.5 + phase) * 0.4;
+                                positions[i * 3 + 1] = (base[i * 3 + 1] + time * 0.2 + phase * 0.05) % 6;
+                                positions[i * 3 + 2] = base[i * 3 + 2] + Math.cos(time * 0.4 + phase) * 0.4;
+                            } else {
+                                // Gentle float
+                                positions[i * 3] = base[i * 3] + Math.sin(time * 0.2 + phase) * 0.4;
+                                positions[i * 3 + 1] = base[i * 3 + 1] + Math.sin(time * 0.3 + phase) * 0.2;
+                                positions[i * 3 + 2] = base[i * 3 + 2] + Math.cos(time * 0.25 + phase) * 0.4;
+                            }
+                        }
+                        child.userData.geo.attributes.position.needsUpdate = true;
+                    }
+                });
+            }
+        }
+
+        // Update detail visibility when world or level changes
+        function updateDetailVisibility() {
+            Object.keys(highDetailGroups).forEach(key => {
+                highDetailGroups[key].visible = (detailLevel === 'high') && (key === currentWorld);
+            });
+            Object.keys(superDetailGroups).forEach(key => {
+                superDetailGroups[key].visible = (detailLevel === 'super') && (key === currentWorld);
+            });
+
+            // Handle texture mode - apply/remove textures to existing geometry
+            if (detailLevel === 'texture' && !textureModeActive) {
+                applyTexturesToScene();
+                textureModeActive = true;
+            } else if (detailLevel !== 'texture' && textureModeActive) {
+                removeTexturesFromScene();
+                textureModeActive = false;
+            }
+        }
+
+        // Camera follow variables
+        let targetCameraY = 2;
+        let targetCameraDistance = 8;
+
+        // Animate grand world
+        function animateGrandWorld(time, deltaTime) {
+            if (currentScale !== 'grand') return;
+
+            // Clouds drifting
+            [...lowClouds, ...highClouds].forEach(cloud => {
+                const c = cloud.userData;
+                cloud.position.x = c.baseX + Math.sin(time * c.driftSpeed * 0.1 + c.driftPhase) * 10;
+                cloud.position.z = c.baseZ + Math.cos(time * c.driftSpeed * 0.1 + c.driftPhase) * 5;
+            });
+
+            // Grand birds circling
+            grandBirds.forEach(bird => {
+                const b = bird.userData;
+                const angle = time * b.circleSpeed + b.phase;
+                bird.position.x = Math.cos(angle) * b.circleRadius;
+                bird.position.z = Math.sin(angle) * b.circleRadius;
+                bird.position.y = b.baseY + Math.sin(time + b.phase) * 2;
+                bird.rotation.y = -angle + Math.PI / 2;
+
+                // Wing flapping
+                b.leftWing.rotation.x = Math.sin(time * 4) * 0.4;
+            });
+
+            // Floating islands bobbing
+            floatingIslands.forEach(island => {
+                const i = island.userData;
+                island.position.y = i.baseY + Math.sin(time * i.bobSpeed + i.bobPhase) * 1;
+                island.rotation.y += i.rotateSpeed * deltaTime;
+            });
+
+            // Aurora waving
+            auroraLights.forEach(aurora => {
+                const a = aurora.userData;
+                const positions = aurora.geometry.attributes.position.array;
+                for (let i = 0; i < positions.length; i += 3) {
+                    const x = aurora.geometry.attributes.position.getX(i / 3);
+                    positions[i + 2] = Math.sin(time * a.waveSpeed + x * 0.2 + a.wavePhase) * 3;
+                }
+                aurora.geometry.attributes.position.needsUpdate = true;
+                aurora.material.opacity = 0.2 + Math.sin(time * 0.5 + a.wavePhase) * 0.1;
+            });
+
+            // Stars twinkling
+            stars.forEach(star => {
+                const s = star.userData;
+                star.material.opacity = 0.5 + Math.sin(time * s.twinkleSpeed + s.twinklePhase) * 0.5;
+            });
+
+            // Animate world-specific grand content
+            const worldGroup = grandContentGroups[currentWorld];
+            if (worldGroup && worldGroup.visible) {
+                worldGroup.children.forEach(child => {
+                    const u = child.userData;
+                    // Floating lanterns (bamboo)
+                    if (u.floatSpeed) {
+                        child.position.y = u.baseY + Math.sin(time * u.floatSpeed) * 2;
+                    }
+                    // Phoenixes (lava)
+                    if (u.angle !== undefined && u.radius && u.speed) {
+                        u.angle += u.speed * deltaTime;
+                        child.position.x = Math.cos(u.angle) * u.radius;
+                        child.position.z = Math.sin(u.angle) * u.radius;
+                        child.rotation.y = -u.angle;
+                    }
+                    // Rotating shards
+                    if (u.rotSpeed) {
+                        child.rotation.y += u.rotSpeed * deltaTime;
+                        child.rotation.x += u.rotSpeed * deltaTime * 0.5;
+                    }
+                    // Drifting papers (drift)
+                    if (u.driftSpeed) {
+                        child.rotation.z += u.driftSpeed * deltaTime;
+                        child.position.y += Math.sin(time * 0.5) * 0.01;
+                    }
+                    // Orbiting satellites (voltage)
+                    if (u.orbitSpeed) {
+                        child.rotation.y += u.orbitSpeed * deltaTime;
+                    }
+                    // Tumbling toys (simmer)
+                    if (u.tumbleSpeed) {
+                        child.rotation.x += u.tumbleSpeed * deltaTime;
+                        child.rotation.z += u.tumbleSpeed * deltaTime * 0.7;
+                    }
+                    // Flocking birds (glade)
+                    if (u.flockAngle !== undefined && u.flockRadius && u.flockSpeed) {
+                        u.flockAngle += u.flockSpeed * deltaTime;
+                        child.position.x += Math.cos(u.flockAngle) * 0.1;
+                        child.position.z += Math.sin(u.flockAngle) * 0.1;
+                        child.rotation.y = -u.flockAngle;
+                    }
+                    // Giant butterflies (glade)
+                    if (u.flapPhase !== undefined) {
+                        child.rotation.x = Math.sin(time * 3 + u.flapPhase) * 0.3;
+                    }
+                });
+            }
+
+            // Camera follow logic - improved tracking
+            if (cameraFollowEnabled && floatModeEnabled) {
+                const charY = currentCharacter.group.position.y;
+
+                // Zoom out gently as we go higher
+                targetCameraDistance = 8 + Math.min(charY * 0.12, 25);
+
+                // Smoothly move camera target to character level (faster tracking)
+                controls.target.y += (charY + 1.5 - controls.target.y) * 0.15;
+
+                // Keep camera at same relative height - stay level with character
+                const desiredCameraY = controls.target.y + 2;
+                camera.position.y += (desiredCameraY - camera.position.y) * 0.12;
+
+                // Adjust horizontal distance smoothly
+                const horizontalDist = Math.sqrt(
+                    Math.pow(camera.position.x, 2) + Math.pow(camera.position.z, 2)
+                );
+                if (Math.abs(horizontalDist - targetCameraDistance) > 0.3) {
+                    const scale = 1 + (targetCameraDistance - horizontalDist) * 0.03;
+                    camera.position.x *= scale;
+                    camera.position.z *= scale;
+                }
+
+                // Adjust max distance for orbit controls
+                controls.maxDistance = targetCameraDistance + 20;
+                controls.minDistance = 2;
+
+                // Change background color based on altitude and world
+                scene.background.copy(getWorldSkyColor(currentWorld, charY));
+            }
+        }
+
+        // Get world-specific sky color based on altitude
+        function getWorldSkyColor(worldName, altitude) {
+            const color = new THREE.Color();
+
+            if (worldName === 'bamboo' || worldName === 'glade') {
+                // Nature worlds - blue to purple to starry
+                if (altitude < 30) {
+                    color.setHSL(0.55, 0.6, 0.7 - altitude * 0.004);
+                } else if (altitude < 100) {
+                    color.setHSL(0.58, 0.5, 0.58 - (altitude - 30) * 0.003);
+                } else {
+                    color.setHSL(0.68, 0.4, Math.max(0.06, 0.37 - (altitude - 100) * 0.002));
+                }
+            } else if (worldName === 'lava') {
+                // Lava - smoky red to black void
+                if (altitude < 40) {
+                    color.setHSL(0.02, 0.6, 0.12 + altitude * 0.002);
+                } else if (altitude < 100) {
+                    color.setHSL(0.0, 0.5, 0.2 - (altitude - 40) * 0.001);
+                } else {
+                    color.setHSL(0.0, 0.3, Math.max(0.02, 0.14 - (altitude - 100) * 0.001));
+                }
+            } else if (worldName === 'drift') {
+                // Amber drift - warm amber to deep purple twilight
+                if (altitude < 50) {
+                    color.setHSL(0.08, 0.4, 0.22 + altitude * 0.002);
+                } else if (altitude < 120) {
+                    color.setHSL(0.08 + (altitude - 50) * 0.004, 0.35, 0.32 - (altitude - 50) * 0.001);
+                } else {
+                    color.setHSL(0.75, 0.25, Math.max(0.08, 0.18 - (altitude - 120) * 0.001));
+                }
+            } else if (worldName === 'voltage') {
+                // Voltage - dark to electric storm to void
+                if (altitude < 50) {
+                    color.setHSL(0.6, 0.4, 0.06 + altitude * 0.002);
+                } else if (altitude < 120) {
+                    color.setHSL(0.55, 0.5, 0.16 + Math.sin(altitude * 0.1) * 0.05);
+                } else {
+                    color.setHSL(0.58, 0.3, Math.max(0.02, 0.1 - (altitude - 120) * 0.001));
+                }
+            } else if (worldName === 'hearth') {
+                // Hearth - warm to dreamy to peaceful dark
+                if (altitude < 40) {
+                    color.setHSL(0.06, 0.45, 0.12 + altitude * 0.003);
+                } else if (altitude < 100) {
+                    color.setHSL(0.08 + (altitude - 40) * 0.005, 0.35, 0.24);
+                } else {
+                    color.setHSL(0.72, 0.25, Math.max(0.08, 0.2 - (altitude - 100) * 0.001));
+                }
+            } else if (worldName === 'simmer') {
+                // Simmer - angry red to pressure release to calm dark
+                if (altitude < 60) {
+                    color.setHSL(0.0, 0.65, 0.1 + altitude * 0.002);
+                } else if (altitude < 120) {
+                    color.setHSL(0.0 + (altitude - 60) * 0.002, 0.5, 0.22 - (altitude - 60) * 0.001);
+                } else {
+                    color.setHSL(0.1, 0.3, Math.max(0.04, 0.16 - (altitude - 120) * 0.001));
+                }
+            } else {
+                // Default fallback
+                color.setHSL(0.55, 0.5, Math.max(0.05, 0.7 - altitude * 0.004));
+            }
+
+            return color;
+        }
+
+        // World-specific grand content groups
+        const grandContentGroups = {
+            bamboo: new THREE.Group(),
+            lava: new THREE.Group(),
+            drift: new THREE.Group(),
+            voltage: new THREE.Group(),
+            hearth: new THREE.Group(),
+            simmer: new THREE.Group(),
+            glade: new THREE.Group(),
+        };
+
+        // Create world-specific grand content
+        function createGrandContentForWorld(worldName) {
+            const group = grandContentGroups[worldName];
+            if (group.children.length > 0) return; // Already created
+
+            if (worldName === 'bamboo') {
+                // Giant bamboo stalks rising into clouds
+                for (let i = 0; i < 20; i++) {
+                    const height = 30 + Math.random() * 80;
+                    const bambooGiant = new THREE.Mesh(
+                        new THREE.CylinderGeometry(0.5, 0.8, height, 12),
+                        new THREE.MeshStandardMaterial({ color: 0x4a7c23 })
+                    );
+                    const angle = Math.random() * Math.PI * 2;
+                    const dist = 15 + Math.random() * 40;
+                    bambooGiant.position.set(Math.cos(angle) * dist, height / 2, Math.sin(angle) * dist);
+                    group.add(bambooGiant);
+                }
+                // Floating lanterns
+                for (let i = 0; i < 30; i++) {
+                    const lantern = new THREE.Mesh(
+                        new THREE.SphereGeometry(0.5, 8, 8),
+                        new THREE.MeshBasicMaterial({ color: 0xffaa44, transparent: true, opacity: 0.8 })
+                    );
+                    lantern.position.set(
+                        (Math.random() - 0.5) * 60,
+                        20 + Math.random() * 100,
+                        (Math.random() - 0.5) * 60
+                    );
+                    lantern.userData = { baseY: lantern.position.y, floatSpeed: 0.3 + Math.random() * 0.2 };
+                    group.add(lantern);
+                }
+            } else if (worldName === 'lava') {
+                // Volcanic ground
+                const lavaGrandGround = new THREE.Mesh(
+                    new THREE.PlaneGeometry(200, 200),
+                    new THREE.MeshStandardMaterial({ color: 0x1a0a0a, roughness: 0.95 })
+                );
+                lavaGrandGround.rotation.x = -Math.PI / 2;
+                lavaGrandGround.position.y = -0.5;
+                group.add(lavaGrandGround);
+
+                // Distant volcanoes
+                for (let i = 0; i < 8; i++) {
+                    const volcano = new THREE.Mesh(
+                        new THREE.ConeGeometry(12 + Math.random() * 8, 25 + Math.random() * 15, 8),
+                        new THREE.MeshStandardMaterial({ color: 0x2a1a1a })
+                    );
+                    const angle = (i / 8) * Math.PI * 2;
+                    const dist = 50 + Math.random() * 30;
+                    volcano.position.set(Math.cos(angle) * dist, 12, Math.sin(angle) * dist);
+                    // Lava glow at top
+                    const lavaTop = new THREE.Mesh(
+                        new THREE.SphereGeometry(3, 8, 4, 0, Math.PI * 2, 0, Math.PI / 2),
+                        new THREE.MeshBasicMaterial({ color: 0xff4400 })
+                    );
+                    lavaTop.position.y = 12;
+                    volcano.add(lavaTop);
+                    group.add(volcano);
+                }
+
+                // Lava rivers on ground
+                for (let i = 0; i < 5; i++) {
+                    const river = new THREE.Mesh(
+                        new THREE.PlaneGeometry(3, 40 + Math.random() * 30),
+                        new THREE.MeshBasicMaterial({ color: 0xff3300 })
+                    );
+                    river.rotation.x = -Math.PI / 2;
+                    river.position.set((Math.random() - 0.5) * 60, 0.1, (Math.random() - 0.5) * 60);
+                    river.rotation.z = Math.random() * Math.PI;
+                    group.add(river);
+                }
+
+                // Volcanic ash clouds
+                for (let i = 0; i < 25; i++) {
+                    const ashCloud = new THREE.Mesh(
+                        new THREE.SphereGeometry(3 + Math.random() * 4, 8, 6),
+                        new THREE.MeshStandardMaterial({ color: 0x333333, transparent: true, opacity: 0.7 })
+                    );
+                    ashCloud.position.set(
+                        (Math.random() - 0.5) * 80,
+                        15 + Math.random() * 50,
+                        (Math.random() - 0.5) * 80
+                    );
+                    group.add(ashCloud);
+                }
+                // Fire phoenixes
+                for (let i = 0; i < 8; i++) {
+                    const phoenix = new THREE.Mesh(
+                        new THREE.ConeGeometry(1, 3, 6),
+                        new THREE.MeshBasicMaterial({ color: 0xff4400 })
+                    );
+                    phoenix.rotation.x = Math.PI / 2;
+                    phoenix.position.set(0, 40 + Math.random() * 60, 0);
+                    phoenix.userData = { angle: Math.random() * Math.PI * 2, radius: 10 + Math.random() * 20, speed: 0.3 + Math.random() * 0.2 };
+                    group.add(phoenix);
+                }
+                // Floating obsidian shards
+                for (let i = 0; i < 15; i++) {
+                    const shard = new THREE.Mesh(
+                        new THREE.OctahedronGeometry(1 + Math.random()),
+                        new THREE.MeshStandardMaterial({ color: 0x1a1a2e, metalness: 0.8, roughness: 0.2 })
+                    );
+                    shard.position.set(
+                        (Math.random() - 0.5) * 50,
+                        50 + Math.random() * 80,
+                        (Math.random() - 0.5) * 50
+                    );
+                    shard.userData = { rotSpeed: 0.5 + Math.random() * 0.5 };
+                    group.add(shard);
+                }
+            } else if (worldName === 'drift') {
+                // Wooden floor extending
+                const driftGrandFloor = new THREE.Mesh(
+                    new THREE.PlaneGeometry(150, 150),
+                    new THREE.MeshStandardMaterial({ color: 0x6b5344, roughness: 0.9 })
+                );
+                driftGrandFloor.rotation.x = -Math.PI / 2;
+                driftGrandFloor.position.y = -0.5;
+                group.add(driftGrandFloor);
+
+                // Distant bookshelves/walls fading into amber haze
+                for (let i = 0; i < 6; i++) {
+                    const wall = new THREE.Mesh(
+                        new THREE.BoxGeometry(30, 20, 2),
+                        new THREE.MeshStandardMaterial({ color: 0x4a3f35, transparent: true, opacity: 0.5 })
+                    );
+                    const angle = (i / 6) * Math.PI * 2;
+                    wall.position.set(Math.cos(angle) * 60, 10, Math.sin(angle) * 60);
+                    wall.rotation.y = angle;
+                    group.add(wall);
+                }
+
+                // Floating paper/thought fragments
+                for (let i = 0; i < 40; i++) {
+                    const paper = new THREE.Mesh(
+                        new THREE.PlaneGeometry(1 + Math.random(), 0.7 + Math.random() * 0.5),
+                        new THREE.MeshStandardMaterial({ color: 0xddc4a0, side: THREE.DoubleSide, transparent: true, opacity: 0.6 })
+                    );
+                    paper.position.set(
+                        (Math.random() - 0.5) * 60,
+                        10 + Math.random() * 120,
+                        (Math.random() - 0.5) * 60
+                    );
+                    paper.rotation.set(Math.random(), Math.random() * Math.PI, Math.random());
+                    paper.userData = { driftSpeed: 0.1 + Math.random() * 0.1 };
+                    group.add(paper);
+                }
+                // Warm light motes growing larger
+                for (let i = 0; i < 50; i++) {
+                    const mote = new THREE.Mesh(
+                        new THREE.SphereGeometry(0.1 + Math.random() * 0.3),
+                        new THREE.MeshBasicMaterial({ color: 0xffdd99, transparent: true, opacity: 0.5 })
+                    );
+                    mote.position.set(
+                        (Math.random() - 0.5) * 50,
+                        5 + Math.random() * 130,
+                        (Math.random() - 0.5) * 50
+                    );
+                    group.add(mote);
+                }
+
+                // Floating clocks at various heights (time passing gently)
+                for (let i = 0; i < 8; i++) {
+                    const clock = new THREE.Mesh(
+                        new THREE.CylinderGeometry(1.5, 1.5, 0.3, 24),
+                        new THREE.MeshStandardMaterial({ color: 0xc4a882 })
+                    );
+                    clock.rotation.x = Math.PI / 2;
+                    clock.position.set(
+                        (Math.random() - 0.5) * 50,
+                        30 + Math.random() * 80,
+                        (Math.random() - 0.5) * 50
+                    );
+                    clock.userData = { rotSpeed: 0.02 + Math.random() * 0.02 };
+                    group.add(clock);
+                }
+            } else if (worldName === 'voltage') {
+                // Dark metallic grid floor (like a circuit board)
+                const voltageGrandFloor = new THREE.Mesh(
+                    new THREE.PlaneGeometry(200, 200),
+                    new THREE.MeshStandardMaterial({ color: 0x0a0a15, metalness: 0.7, roughness: 0.3 })
+                );
+                voltageGrandFloor.rotation.x = -Math.PI / 2;
+                voltageGrandFloor.position.y = -0.5;
+                group.add(voltageGrandFloor);
+
+                // Glowing grid lines on floor
+                for (let i = 0; i < 20; i++) {
+                    const gridLine = new THREE.Mesh(
+                        new THREE.BoxGeometry(0.1, 0.05, 150),
+                        new THREE.MeshBasicMaterial({ color: 0x4466ff })
+                    );
+                    gridLine.position.set((i - 10) * 10, -0.4, 0);
+                    group.add(gridLine);
+                    const crossLine = gridLine.clone();
+                    crossLine.rotation.y = Math.PI / 2;
+                    crossLine.position.set(0, -0.4, (i - 10) * 10);
+                    group.add(crossLine);
+                }
+
+                // Electric pylons/towers
+                for (let i = 0; i < 8; i++) {
+                    const pylon = new THREE.Group();
+                    const tower = new THREE.Mesh(
+                        new THREE.CylinderGeometry(0.5, 1, 40, 6),
+                        new THREE.MeshStandardMaterial({ color: 0x333355, metalness: 0.9 })
+                    );
+                    pylon.add(tower);
+                    const topGlow = new THREE.Mesh(
+                        new THREE.SphereGeometry(1.5, 8, 8),
+                        new THREE.MeshBasicMaterial({ color: 0x88aaff })
+                    );
+                    topGlow.position.y = 20;
+                    pylon.add(topGlow);
+                    const angle = (i / 8) * Math.PI * 2;
+                    const dist = 45 + Math.random() * 20;
+                    pylon.position.set(Math.cos(angle) * dist, 20, Math.sin(angle) * dist);
+                    group.add(pylon);
+                }
+
+                // Electric storm clouds
+                for (let i = 0; i < 15; i++) {
+                    const stormCloud = new THREE.Mesh(
+                        new THREE.IcosahedronGeometry(4 + Math.random() * 3, 1),
+                        new THREE.MeshStandardMaterial({ color: 0x222244, transparent: true, opacity: 0.8 })
+                    );
+                    stormCloud.position.set(
+                        (Math.random() - 0.5) * 70,
+                        30 + Math.random() * 60,
+                        (Math.random() - 0.5) * 70
+                    );
+                    group.add(stormCloud);
+                }
+                // Satellites/tech debris
+                for (let i = 0; i < 12; i++) {
+                    const satellite = new THREE.Group();
+                    const body = new THREE.Mesh(
+                        new THREE.BoxGeometry(1, 0.5, 0.5),
+                        new THREE.MeshStandardMaterial({ color: 0x888888, metalness: 0.9 })
+                    );
+                    satellite.add(body);
+                    const panel1 = new THREE.Mesh(new THREE.BoxGeometry(2, 0.05, 1), new THREE.MeshBasicMaterial({ color: 0x4444aa }));
+                    panel1.position.x = 1.5;
+                    satellite.add(panel1);
+                    const panel2 = panel1.clone();
+                    panel2.position.x = -1.5;
+                    satellite.add(panel2);
+                    satellite.position.set(
+                        (Math.random() - 0.5) * 60,
+                        80 + Math.random() * 80,
+                        (Math.random() - 0.5) * 60
+                    );
+                    satellite.userData = { orbitSpeed: 0.1 + Math.random() * 0.1 };
+                    group.add(satellite);
+                }
+            } else if (worldName === 'hearth') {
+                // Warm soft carpet floor
+                const hearthGrandFloor = new THREE.Mesh(
+                    new THREE.PlaneGeometry(180, 180),
+                    new THREE.MeshStandardMaterial({ color: 0x8b6b5c, roughness: 1.0 })
+                );
+                hearthGrandFloor.rotation.x = -Math.PI / 2;
+                hearthGrandFloor.position.y = -0.5;
+                group.add(hearthGrandFloor);
+
+                // Cozy circular rug patterns
+                for (let i = 0; i < 5; i++) {
+                    const rug = new THREE.Mesh(
+                        new THREE.CircleGeometry(6 + Math.random() * 4, 24),
+                        new THREE.MeshStandardMaterial({ color: 0xcc9977, roughness: 1.0 })
+                    );
+                    rug.rotation.x = -Math.PI / 2;
+                    rug.position.set((Math.random() - 0.5) * 60, -0.4, (Math.random() - 0.5) * 60);
+                    group.add(rug);
+                }
+
+                // Distant cozy cabin walls/windows with warm light
+                for (let i = 0; i < 6; i++) {
+                    const cabinWall = new THREE.Mesh(
+                        new THREE.BoxGeometry(25, 15, 1),
+                        new THREE.MeshStandardMaterial({ color: 0x5c4033, roughness: 0.9 })
+                    );
+                    const angle = (i / 6) * Math.PI * 2;
+                    cabinWall.position.set(Math.cos(angle) * 55, 7, Math.sin(angle) * 55);
+                    cabinWall.rotation.y = angle;
+                    group.add(cabinWall);
+                    // Warm window glow
+                    const window = new THREE.Mesh(
+                        new THREE.PlaneGeometry(4, 4),
+                        new THREE.MeshBasicMaterial({ color: 0xffcc77 })
+                    );
+                    window.position.set(Math.cos(angle) * 54, 7, Math.sin(angle) * 54);
+                    window.rotation.y = angle;
+                    group.add(window);
+                }
+
+                // Dreamy floating pillows/blankets
+                for (let i = 0; i < 20; i++) {
+                    const pillow = new THREE.Mesh(
+                        new THREE.BoxGeometry(2, 0.5, 1.5),
+                        new THREE.MeshStandardMaterial({ color: 0xeeddcc, roughness: 1 })
+                    );
+                    pillow.position.set(
+                        (Math.random() - 0.5) * 40,
+                        15 + Math.random() * 60,
+                        (Math.random() - 0.5) * 40
+                    );
+                    pillow.rotation.set(Math.random() * 0.3, Math.random() * Math.PI, Math.random() * 0.3);
+                    group.add(pillow);
+                }
+                // Floating family silhouettes at higher altitudes
+                for (let i = 0; i < 5; i++) {
+                    const familyCluster = new THREE.Group();
+                    for (let j = 0; j < 3 + Math.floor(Math.random() * 2); j++) {
+                        const figure = new THREE.Mesh(
+                            new THREE.SphereGeometry(0.3 + Math.random() * 0.3),
+                            new THREE.MeshStandardMaterial({ color: 0xffddcc, transparent: true, opacity: 0.7 })
+                        );
+                        figure.position.set((Math.random() - 0.5) * 1.5, Math.random() * 0.5, (Math.random() - 0.5) * 1.5);
+                        familyCluster.add(figure);
+                    }
+                    familyCluster.position.set(
+                        (Math.random() - 0.5) * 50,
+                        60 + Math.random() * 60,
+                        (Math.random() - 0.5) * 50
+                    );
+                    group.add(familyCluster);
+                }
+                // Warm glowing orbs like distant hearths
+                for (let i = 0; i < 30; i++) {
+                    const warmOrb = new THREE.Mesh(
+                        new THREE.SphereGeometry(0.5 + Math.random() * 0.5),
+                        new THREE.MeshBasicMaterial({ color: 0xffaa55, transparent: true, opacity: 0.6 })
+                    );
+                    warmOrb.position.set(
+                        (Math.random() - 0.5) * 70,
+                        10 + Math.random() * 100,
+                        (Math.random() - 0.5) * 70
+                    );
+                    group.add(warmOrb);
+                }
+            } else if (worldName === 'simmer') {
+                // Tiled floor like a home (slightly cracked/stressed look)
+                const simmerGrandFloor = new THREE.Mesh(
+                    new THREE.PlaneGeometry(160, 160),
+                    new THREE.MeshStandardMaterial({ color: 0x4a3a35, roughness: 0.8 })
+                );
+                simmerGrandFloor.rotation.x = -Math.PI / 2;
+                simmerGrandFloor.position.y = -0.5;
+                group.add(simmerGrandFloor);
+
+                // Tile grid lines (cracked appearance)
+                for (let i = 0; i < 16; i++) {
+                    const tileLine = new THREE.Mesh(
+                        new THREE.BoxGeometry(0.1, 0.02, 140),
+                        new THREE.MeshStandardMaterial({ color: 0x2a1a15 })
+                    );
+                    tileLine.position.set((i - 8) * 10, -0.45, 0);
+                    group.add(tileLine);
+                    const crossLine = tileLine.clone();
+                    crossLine.rotation.y = Math.PI / 2;
+                    crossLine.position.set(0, -0.45, (i - 8) * 10);
+                    group.add(crossLine);
+                }
+
+                // Overturned furniture pieces scattered around
+                for (let i = 0; i < 8; i++) {
+                    const furniture = new THREE.Mesh(
+                        new THREE.BoxGeometry(2 + Math.random() * 2, 1, 1 + Math.random()),
+                        new THREE.MeshStandardMaterial({ color: 0x6b5b4f })
+                    );
+                    furniture.position.set(
+                        (Math.random() - 0.5) * 50,
+                        0.5,
+                        (Math.random() - 0.5) * 50
+                    );
+                    furniture.rotation.set(Math.random() * 0.5, Math.random() * Math.PI, Math.random() * 0.5);
+                    group.add(furniture);
+                }
+
+                // Pressure cracks/fissures in floor (glowing red)
+                for (let i = 0; i < 10; i++) {
+                    const crack = new THREE.Mesh(
+                        new THREE.BoxGeometry(0.3, 0.1, 15 + Math.random() * 20),
+                        new THREE.MeshBasicMaterial({ color: 0xff4422 })
+                    );
+                    crack.rotation.y = Math.random() * Math.PI;
+                    crack.position.set((Math.random() - 0.5) * 60, -0.3, (Math.random() - 0.5) * 60);
+                    group.add(crack);
+                }
+
+                // Rising steam/pressure vents
+                for (let i = 0; i < 30; i++) {
+                    const steam = new THREE.Mesh(
+                        new THREE.CylinderGeometry(0.5, 1.5, 8 + Math.random() * 15, 8),
+                        new THREE.MeshBasicMaterial({ color: 0xff6644, transparent: true, opacity: 0.3 })
+                    );
+                    steam.position.set(
+                        (Math.random() - 0.5) * 50,
+                        10 + Math.random() * 40,
+                        (Math.random() - 0.5) * 50
+                    );
+                    group.add(steam);
+                }
+                // Scattered toys that got thrown high
+                for (let i = 0; i < 25; i++) {
+                    const toy = new THREE.Mesh(
+                        new THREE.BoxGeometry(0.3 + Math.random() * 0.3, 0.3 + Math.random() * 0.3, 0.3 + Math.random() * 0.3),
+                        new THREE.MeshStandardMaterial({ color: new THREE.Color().setHSL(Math.random() * 0.1, 0.7, 0.5) })
+                    );
+                    toy.position.set(
+                        (Math.random() - 0.5) * 60,
+                        20 + Math.random() * 80,
+                        (Math.random() - 0.5) * 60
+                    );
+                    toy.userData = { tumbleSpeed: 1 + Math.random() * 2 };
+                    group.add(toy);
+                }
+                // Calm zone at very high altitude (relief)
+                for (let i = 0; i < 10; i++) {
+                    const calmOrb = new THREE.Mesh(
+                        new THREE.SphereGeometry(2),
+                        new THREE.MeshBasicMaterial({ color: 0x88aaff, transparent: true, opacity: 0.3 })
+                    );
+                    calmOrb.position.set(
+                        (Math.random() - 0.5) * 40,
+                        120 + Math.random() * 40,
+                        (Math.random() - 0.5) * 40
+                    );
+                    group.add(calmOrb);
+                }
+            } else if (worldName === 'glade') {
+                // Giant flowers
+                for (let i = 0; i < 15; i++) {
+                    const giantFlower = new THREE.Group();
+                    const stem = new THREE.Mesh(
+                        new THREE.CylinderGeometry(0.3, 0.5, 30 + Math.random() * 40, 8),
+                        new THREE.MeshStandardMaterial({ color: 0x3a7d32 })
+                    );
+                    giantFlower.add(stem);
+                    const petals = new THREE.Mesh(
+                        new THREE.SphereGeometry(3 + Math.random() * 2, 8, 6),
+                        new THREE.MeshStandardMaterial({ color: new THREE.Color().setHSL(Math.random(), 0.7, 0.6) })
+                    );
+                    petals.position.y = 20 + Math.random() * 20;
+                    petals.scale.y = 0.5;
+                    giantFlower.add(petals);
+                    const angle = Math.random() * Math.PI * 2;
+                    const dist = 15 + Math.random() * 35;
+                    giantFlower.position.set(Math.cos(angle) * dist, 0, Math.sin(angle) * dist);
+                    group.add(giantFlower);
+                }
+                // Flocks of birds at various heights
+                for (let i = 0; i < 20; i++) {
+                    const bird = new THREE.Mesh(
+                        new THREE.ConeGeometry(0.3, 1, 4),
+                        new THREE.MeshStandardMaterial({ color: 0x333333 })
+                    );
+                    bird.rotation.x = Math.PI / 2;
+                    bird.position.set(
+                        (Math.random() - 0.5) * 60,
+                        15 + Math.random() * 80,
+                        (Math.random() - 0.5) * 60
+                    );
+                    bird.userData = { flockAngle: Math.random() * Math.PI * 2, flockRadius: 5 + Math.random() * 15, flockSpeed: 0.2 + Math.random() * 0.2 };
+                    group.add(bird);
+                }
+                // Giant butterflies
+                for (let i = 0; i < 10; i++) {
+                    const bigButterfly = new THREE.Mesh(
+                        new THREE.PlaneGeometry(4, 3),
+                        new THREE.MeshBasicMaterial({
+                            color: new THREE.Color().setHSL(Math.random(), 0.8, 0.5),
+                            side: THREE.DoubleSide,
+                            transparent: true,
+                            opacity: 0.8
+                        })
+                    );
+                    bigButterfly.position.set(
+                        (Math.random() - 0.5) * 50,
+                        40 + Math.random() * 70,
+                        (Math.random() - 0.5) * 50
+                    );
+                    bigButterfly.userData = { flapPhase: Math.random() * Math.PI * 2 };
+                    group.add(bigButterfly);
+                }
+            }
+
+            scene.add(group);
+            group.visible = false;
+        }
+
+        // Create grand content for all worlds upfront
+        Object.keys(grandContentGroups).forEach(createGrandContentForWorld);
+
+        // Switch scale function
+        function switchScale(scaleName) {
+            currentScale = scaleName;
+
+            if (scaleName === 'grand') {
+                // Hide all standard world content
+                bambooWorld.visible = false;
+                lavaWorld.visible = false;
+                driftWorld.visible = false;
+                voltageWorld.visible = false;
+                hearthWorld.visible = false;
+                simmerWorld.visible = false;
+                gladeWorld.visible = false;
+
+                // Only show generic grand world (trees, mountains) for nature worlds
+                const natureWorlds = ['bamboo', 'glade'];
+                grandWorld.visible = natureWorlds.includes(currentWorld);
+
+                // Show world-specific grand content
+                Object.keys(grandContentGroups).forEach(key => {
+                    grandContentGroups[key].visible = (key === currentWorld);
+                });
+                cameraFollowEnabled = true;
+                controls.maxDistance = 100;
+            } else {
+                grandWorld.visible = false;
+                // Hide all world-specific grand content
+                Object.keys(grandContentGroups).forEach(key => {
+                    grandContentGroups[key].visible = false;
+                });
+                cameraFollowEnabled = false;
+                controls.maxDistance = 30;
+                controls.target.set(0, 1.5, 0);
+
+                // Reset character position
+                currentCharacter.group.position.y = 0;
+                characterVelocityY = 0;
+
+                // Reset background
+                switchWorld(currentWorld);
+            }
+        }
+
         // World backgrounds
         const bambooBackground = 0x87ceeb;
         const lavaBackground = 0x1a0505;
@@ -2622,6 +6233,28 @@
                 keyLight.color.setHex(0xfffaf0);
                 keyLight.intensity = 1.3;
             }
+
+            // Update grand content visibility if in grand mode
+            if (currentScale === 'grand') {
+                // Hide all standard world content when in grand mode
+                bambooWorld.visible = false;
+                lavaWorld.visible = false;
+                driftWorld.visible = false;
+                voltageWorld.visible = false;
+                hearthWorld.visible = false;
+                simmerWorld.visible = false;
+                gladeWorld.visible = false;
+
+                const natureWorlds = ['bamboo', 'glade'];
+                grandWorld.visible = natureWorlds.includes(worldName);
+
+                Object.keys(grandContentGroups).forEach(key => {
+                    grandContentGroups[key].visible = (key === worldName);
+                });
+            }
+
+            // Update high detail for new world
+            updateDetailVisibility();
         }
 
         // Animate lava world elements
@@ -3443,11 +7076,21 @@
         function applyFloatPhysics(deltaTime) {
             if (!floatModeEnabled) return;
 
+            // In grand mode, use gentler physics for high altitude flight
+            const gravityMult = currentScale === 'grand' ? 0.3 : 1;
+            const dragMult = currentScale === 'grand' ? 0.985 : floatDrag;
+
             // Apply gravity
-            characterVelocityY -= floatGravity * deltaTime;
+            characterVelocityY -= floatGravity * gravityMult * deltaTime;
 
             // Apply drag for slow floating descent
-            characterVelocityY *= floatDrag;
+            characterVelocityY *= dragMult;
+
+            // Cap max velocity in grand mode to prevent runaway acceleration
+            if (currentScale === 'grand') {
+                characterVelocityY = Math.min(characterVelocityY, 3.0);
+                characterVelocityY = Math.max(characterVelocityY, -2.0);
+            }
 
             // Update character position
             currentCharacter.group.position.y += characterVelocityY * deltaTime * 10;
@@ -3464,7 +7107,9 @@
 
         function boostCharacterUp() {
             if (!floatModeEnabled) return;
-            characterVelocityY += floatBoost;
+            // Gentler boost in grand mode (was too aggressive)
+            const boostMult = currentScale === 'grand' ? 1.2 : 1;
+            characterVelocityY += floatBoost * boostMult;
         }
 
         // ============================================
@@ -4013,6 +7658,12 @@
             // Animate glade world
             animateGladeWorld(time, deltaTime);
 
+            // Animate grand world
+            animateGrandWorld(time, deltaTime);
+
+            // Animate high detail elements
+            animateHighDetail(time);
+
             // Process bird collisions
             processBirdCollisions();
 
@@ -4072,6 +7723,58 @@
 
             controls.update();
 
+            // Update physics for interactive mode
+            if (interactiveMode || physicsObjects.length > 0 || reconstitutingObjects.length > 0) {
+                updatePhysics(deltaTime);
+                updateReconstituting(deltaTime);
+
+                // Update leaf flutter physics (slower gravity for leaves)
+                for (const obj of physicsObjects) {
+                    if (obj.leafFlutter && !obj.grounded) {
+                        // Reduce gravity effect for leaves
+                        obj.velocity.y += 10 * deltaTime; // counteract some gravity
+                        // Add flutter
+                        obj.velocity.x += Math.sin(time * 10 + obj.mesh.id) * 0.5 * deltaTime;
+                        obj.velocity.z += Math.cos(time * 8 + obj.mesh.id) * 0.5 * deltaTime;
+                    }
+                }
+
+                // Update squishing objects
+                scene.traverse(obj => {
+                    if (obj.userData && obj.userData.squishing) {
+                        obj.userData.squishTime += deltaTime;
+                        const t = obj.userData.squishTime;
+                        const squishFactor = 1 - 0.3 * Math.sin(t * 15) * Math.exp(-t * 3);
+                        const stretchFactor = 1 + 0.15 * Math.sin(t * 15) * Math.exp(-t * 3);
+                        obj.scale.y = obj.userData.originalScale.y * squishFactor;
+                        obj.scale.x = obj.userData.originalScale.x * stretchFactor;
+                        obj.scale.z = obj.userData.originalScale.z * stretchFactor;
+
+                        if (t > 1) {
+                            obj.scale.copy(obj.userData.originalScale);
+                            obj.userData.squishing = false;
+                        }
+                    }
+
+                    // Update shaking trees
+                    if (obj.userData && obj.userData.shaking) {
+                        obj.userData.shakeTime += deltaTime;
+                        const t = obj.userData.shakeTime;
+                        const shake = Math.sin(t * 30) * 0.1 * Math.exp(-t * 3);
+                        obj.position.x = obj.userData.originalPos.x + shake;
+                        obj.position.z = obj.userData.originalPos.z + shake * 0.5;
+
+                        if (t > 1) {
+                            obj.position.copy(obj.userData.originalPos);
+                            obj.userData.shaking = false;
+                        }
+                    }
+                });
+            }
+
+            // Update cryptic scripts
+            updateCrypticScripts(time);
+
             // Render with SSR composer or standard renderer
             if (reflectionMode === 'ssr') {
                 composer.render();
@@ -4114,6 +7817,11 @@
         // World selection
         document.getElementById('worldSelect').addEventListener('change', (e) => {
             switchWorld(e.target.value);
+        });
+
+        // Scale selection
+        document.getElementById('scaleSelect').addEventListener('change', (e) => {
+            switchScale(e.target.value);
         });
 
         // Character selection
@@ -4208,6 +7916,33 @@
         document.getElementById('cameraCreatureToggle').addEventListener('change', (e) => {
             cameraCreatureEnabled = e.target.checked;
             cameraCreature.visible = cameraCreatureEnabled;
+        });
+
+        // Detail level select
+        document.getElementById('detailLevelSelect').addEventListener('change', (e) => {
+            detailLevel = e.target.value;
+            updateDetailVisibility();
+        });
+
+        // Sphere texture toggle
+        document.getElementById('sphereTextureToggle').addEventListener('change', (e) => {
+            sphereTextureEnabled = e.target.checked;
+            if (sphereTextureEnabled) {
+                applySphereTexture();
+            } else {
+                removeSphereTexture();
+            }
+        });
+
+        // Interactive mode toggle
+        document.getElementById('interactiveToggle').addEventListener('change', (e) => {
+            interactiveMode = e.target.checked;
+            renderer.domElement.style.cursor = interactiveMode ? 'crosshair' : 'default';
+        });
+
+        // Cryptic scripts toggle
+        document.getElementById('crypticToggle').addEventListener('change', (e) => {
+            toggleCrypticScripts(e.target.checked);
         });
 
         window.addEventListener('resize', () => {
