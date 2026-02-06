@@ -5852,7 +5852,9 @@
         let lastInteractionTime = 0;
         const INTERACTION_COOLDOWN = 100; // ms between interactions
 
-        // Mouse/touch interaction handler
+        // Unified interaction handler: raycasts both world objects and character,
+        // processes hits front-to-back. Items in front of sphere win, sphere blocks
+        // items behind it.
         function onInteract(event) {
             if (!interactiveMode) return;
 
@@ -5868,6 +5870,7 @@
                 clientX = event.touches[0].clientX;
                 clientY = event.touches[0].clientY;
             } else {
+                if (event.button !== undefined && event.button !== 0) return;
                 clientX = event.clientX;
                 clientY = event.clientY;
             }
@@ -5875,10 +5878,9 @@
             interactiveMouse.x = ((clientX - rect.left) / rect.width) * 2 - 1;
             interactiveMouse.y = -((clientY - rect.top) / rect.height) * 2 + 1;
 
-            // Raycast
+            // Raycast against everything: world objects + character
             interactiveRaycaster.setFromCamera(interactiveMouse, camera);
 
-            // Get current world objects to check
             const worldToCheck = currentScale === 'grand' ? grandWorld :
                 (currentWorld === 'bamboo' ? bambooWorld :
                  currentWorld === 'lava' ? lavaWorld :
@@ -5893,34 +5895,43 @@
                  currentWorld === 'tension' ? tensionWorld :
                  currentWorld === 'serenity' ? serenityWorld : null);
 
-            if (!worldToCheck) return;
+            // Collect all objects to raycast: world + character
+            const targets = [];
+            if (worldToCheck) targets.push(...worldToCheck.children);
+            targets.push(...clickableMeshes);
 
-            const intersects = interactiveRaycaster.intersectObjects(worldToCheck.children, true);
+            const intersects = interactiveRaycaster.intersectObjects(targets, true);
 
-            if (intersects.length > 0) {
-                // Find first non-ground, non-character, interactive intersection
-                for (const intersect of intersects) {
-                    const obj = intersect.object;
-                    // Skip non-interactive objects (dust, particles, etc.)
-                    if (obj.userData && obj.userData.noInteract) continue;
-                    // Skip ground planes and character
-                    if (obj.geometry && obj.geometry.type === 'PlaneGeometry' &&
-                        obj.rotation.x === -Math.PI / 2) continue;
-                    if (obj.geometry && obj.geometry.type === 'CircleGeometry' &&
-                        obj.rotation.x === -Math.PI / 2) continue;
-                    if (obj === currentCharacter.body) continue;
+            for (const intersect of intersects) {
+                const obj = intersect.object;
 
-                    // Only preventDefault after finding a valid hit
-                    event.preventDefault();
+                // Skip non-interactive particles, dust, etc.
+                if (obj.userData && obj.userData.noInteract) continue;
+                // Skip ground planes
+                if (obj.geometry && obj.geometry.type === 'PlaneGeometry' &&
+                    obj.rotation.x === -Math.PI / 2) continue;
+                if (obj.geometry && obj.geometry.type === 'CircleGeometry' &&
+                    obj.rotation.x === -Math.PI / 2) continue;
+
+                // Check if this is the character (sphere/panda body)
+                if (clickableMeshes.includes(obj)) {
+                    // Character hit - handle sphere/panda interaction
                     lastInteractionTime = now;
-                    handleInteraction(intersect);
-                    break;
+                    if (event.touches) event.preventDefault();
+                    handleCharacterTap(intersect);
+                    return;
                 }
+
+                // World object in front of character - handle world interaction
+                lastInteractionTime = now;
+                if (event.touches) event.preventDefault();
+                handleInteraction(intersect);
+                return;
             }
         }
 
-        // Add event listeners for interaction
-        renderer.domElement.addEventListener('click', onInteract);
+        // Add event listeners for interaction (tap onset: mousedown + touchstart)
+        renderer.domElement.addEventListener('mousedown', onInteract);
         renderer.domElement.addEventListener('touchstart', onInteract, { passive: false });
 
         // ============================================
@@ -9028,53 +9039,54 @@
             mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
         });
 
-        // Handle mouse down - start adding material
+        // Handle character tap (called from unified onInteract handler)
+        function handleCharacterTap(hit) {
+            const mesh = hit.object;
+
+            // Boost character up if float mode enabled
+            if (floatModeEnabled) {
+                boostCharacterUp();
+            }
+
+            if (addMaterialMode) {
+                // Start continuous material addition
+                isAddingMaterial = true;
+                currentAddTarget = { mesh };
+                controls.enabled = false;
+            } else {
+                // Play sphere tap sound
+                playSound('sphereTap');
+
+                // Convert hit point to local coordinates of the mesh
+                const localPoint = mesh.worldToLocal(hit.point.clone());
+                impacts.push({
+                    mesh: mesh,
+                    point: localPoint,
+                    worldPoint: hit.point.clone(),
+                    time: 0,
+                    strength: 0.4,
+                    radius: 0.8,
+                    duration: 1.5
+                });
+
+                if (impacts.length > 20) {
+                    impacts.shift();
+                }
+            }
+        }
+
+        // Fallback mousedown for character tap when interactive mode is off
         renderer.domElement.addEventListener('mousedown', (event) => {
-            if (event.button !== 0) return; // Only left click
+            if (interactiveMode) return; // handled by onInteract
+            if (event.button !== 0) return;
 
             mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
             mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
 
             raycaster.setFromCamera(mouse, camera);
             const intersects = raycaster.intersectObjects(clickableMeshes);
-
             if (intersects.length > 0) {
-                const hit = intersects[0];
-                const mesh = hit.object;
-
-                // Boost character up if float mode enabled
-                if (floatModeEnabled) {
-                    boostCharacterUp();
-                }
-
-                if (addMaterialMode) {
-                    // Start continuous material addition
-                    isAddingMaterial = true;
-                    currentAddTarget = { mesh };
-                    // Disable orbit controls while adding material
-                    controls.enabled = false;
-                } else {
-                    // Play sphere tap sound
-                    playSound('sphereTap');
-
-                    // Convert hit point to local coordinates of the mesh
-                    const localPoint = mesh.worldToLocal(hit.point.clone());
-                    // Add temporary impact
-                    impacts.push({
-                        mesh: mesh,
-                        point: localPoint,
-                        worldPoint: hit.point.clone(),
-                        time: 0,
-                        strength: 0.4,
-                        radius: 0.8,
-                        duration: 1.5
-                    });
-
-                    // Limit number of active impacts
-                    if (impacts.length > 20) {
-                        impacts.shift();
-                    }
-                }
+                handleCharacterTap(intersects[0]);
             }
         });
 
