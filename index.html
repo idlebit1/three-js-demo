@@ -2,7 +2,9 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
     <title>Nintendo Style Panda</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -22,9 +24,10 @@
             top: 20px;
             right: 20px;
             font-family: 'Segoe UI', Arial, sans-serif;
-            max-height: calc(100vh - 60px);
+            max-height: calc(100dvh - 60px);
             overflow-y: auto;
             padding-right: 6px;
+            padding-bottom: 40px;
         }
         #controls select {
             padding: 8px 16px;
@@ -60,12 +63,28 @@
             box-shadow: 0 2px 8px rgba(0,0,0,0.2);
         }
         #toggleControls:hover { background: white; }
+        #fullscreenBtn {
+            position: absolute;
+            top: 20px;
+            right: 120px;
+            z-index: 10;
+            padding: 6px 12px;
+            font-size: 12px;
+            font-family: 'Segoe UI', Arial, sans-serif;
+            border: none;
+            border-radius: 8px;
+            background: rgba(255,255,255,0.9);
+            cursor: pointer;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+        }
+        #fullscreenBtn:hover { background: white; }
         #controls.hidden { display: none; }
         #controls.visible { top: 44px; }
     </style>
 </head>
 <body>
     <div id="info">🐼 Nintendo Style Panda<br><small>Drag to rotate • Scroll to zoom</small></div>
+    <button id="fullscreenBtn" onclick="if(!document.fullscreenElement){document.documentElement.requestFullscreen().catch(()=>{})}else{document.exitFullscreen()}">Fullscreen</button>
     <button id="toggleControls" onclick="document.getElementById('controls').classList.toggle('hidden'); this.textContent = document.getElementById('controls').classList.contains('hidden') ? 'Show Controls' : 'Hide Controls';">Hide Controls</button>
     <div id="controls" class="visible">
         <label>
