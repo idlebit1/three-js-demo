@@ -3763,9 +3763,9 @@
         const masterLimiter = new Tone.Limiter(-6).toDestination();
         const masterVol = new Tone.Volume(-10).connect(masterLimiter);
 
-        // Start audio context on first user interaction
+        // Start/resume audio context on user interaction
         async function ensureAudioStarted() {
-            if (!audioStarted && Tone.context.state !== 'running') {
+            if (Tone.context.state !== 'running') {
                 await Tone.start();
                 audioStarted = true;
             }
@@ -6446,7 +6446,7 @@
         const DRAG_COMMIT_THRESHOLD = 0.25; // 25% of screen height for slow drags
         const VELOCITY_THRESHOLD = 0.5; // px/ms - above this, commit regardless of distance
         const TRANSITION_MS = 250;
-        const DRAG_INIT_THRESHOLD = 10; // px before drag engages
+        const DRAG_INIT_THRESHOLD = 30; // px before drag engages
 
         // Snapshot canvas for the old world
         const snapCanvas = document.createElement('canvas');
@@ -6560,16 +6560,17 @@
                     cleanupDrag();
                 }, TRANSITION_MS);
             } else {
-                // Cancel: animate back, then restore original world
-                snapCanvas.style.transition = `transform ${TRANSITION_MS}ms ease-out`;
-                canvasEl.style.transition = `transform ${TRANSITION_MS}ms ease-out`;
+                // Cancel: animate back, duration proportional to drag distance
+                const cancelMs = Math.max(50, TRANSITION_MS * progress);
+                snapCanvas.style.transition = `transform ${cancelMs}ms ease-out`;
+                canvasEl.style.transition = `transform ${cancelMs}ms ease-out`;
                 snapCanvas.style.transform = 'translateY(0)';
                 canvasEl.style.transform = `translateY(${h * dragDirection}px)`;
 
                 setTimeout(() => {
                     switchWorld(dragOriginalWorld);
                     cleanupDrag();
-                }, TRANSITION_MS);
+                }, cancelMs);
             }
         }, { passive: true });
 
