@@ -172,16 +172,16 @@ export default {
         });
     },
 
-    interact(state, mesh, point, geoType, playSound) {
+    interact(state, mesh, point, geoType, ctx) {
         // Puddles ripple
         if (geoType === 'CircleGeometry' && mesh.userData && mesh.userData.ripplePhase !== undefined) {
-            playSound('bubblePop');
+            ctx.playSound('bubblePop');
             mesh.scale.setScalar(1.2);
             setTimeout(() => mesh.scale.setScalar(1), 200);
         }
         // Wilted flowers sway when tapped
         else if (geoType === 'SphereGeometry' || geoType === 'CylinderGeometry') {
-            playSound('bubblePop');
+            ctx.playSound('bubblePop');
             const flower = mesh.parent;
             if (flower && flower.isGroup) {
                 const origZ = flower.rotation.z;
