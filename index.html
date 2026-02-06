@@ -9643,69 +9643,133 @@
         interactiveMode = true;
         renderer.domElement.style.cursor = 'crosshair';
 
-        // Swipe up/down to change worlds (TikTok-style slide transition)
+        // Drag up/down to change worlds (TikTok-style)
         const worldList = ['bamboo', 'lava', 'drift', 'voltage', 'hearth', 'simmer', 'glade', 'abyss', 'melancholy', 'euphoria', 'tension', 'serenity'];
-        let swipeStartY = null;
-        let swipeStartX = null;
-        let isTransitioning = false;
-        const SWIPE_THRESHOLD = 50;
-        const TRANSITION_MS = 300;
         const canvasEl = renderer.domElement;
+        let dragStartY = null;
+        let dragStartX = null;
+        let isDragging = false;
+        let isTransitioning = false;
+        let dragDirection = 0; // 1 = up, -1 = down
+        let dragOriginalWorld = null;
+        let dragNextWorld = null;
+        const DRAG_COMMIT_THRESHOLD = 0.25; // 25% of screen height to commit
+        const TRANSITION_MS = 250;
+        const DRAG_INIT_THRESHOLD = 10; // px before drag engages
 
-        renderer.domElement.addEventListener('touchstart', (e) => {
+        // Snapshot canvas for the old world
+        const snapCanvas = document.createElement('canvas');
+        snapCanvas.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;z-index:5;pointer-events:none;display:none;';
+        document.body.appendChild(snapCanvas);
+        const snapCtx = snapCanvas.getContext('2d');
+
+        function captureSnapshot() {
+            snapCanvas.width = canvasEl.width;
+            snapCanvas.height = canvasEl.height;
+            snapCtx.drawImage(canvasEl, 0, 0);
+            snapCanvas.style.display = '';
+            snapCanvas.style.transform = '';
+        }
+
+        function cleanupDrag() {
+            snapCanvas.style.display = 'none';
+            snapCanvas.style.transition = '';
+            snapCanvas.style.transform = '';
+            canvasEl.style.transition = '';
+            canvasEl.style.transform = '';
+            isDragging = false;
+            isTransitioning = false;
+            dragDirection = 0;
+            dragOriginalWorld = null;
+            dragNextWorld = null;
+        }
+
+        canvasEl.addEventListener('touchstart', (e) => {
             if (e.touches.length === 1 && !isTransitioning) {
-                swipeStartY = e.touches[0].clientY;
-                swipeStartX = e.touches[0].clientX;
+                dragStartY = e.touches[0].clientY;
+                dragStartX = e.touches[0].clientX;
+                isDragging = false;
+                dragDirection = 0;
             }
         }, { passive: true });
 
-        renderer.domElement.addEventListener('touchend', (e) => {
-            if (swipeStartY === null || isTransitioning) return;
-            const touch = e.changedTouches[0];
-            const dy = swipeStartY - touch.clientY;
-            const dx = Math.abs(swipeStartX - touch.clientX);
-            swipeStartY = null;
-            swipeStartX = null;
+        canvasEl.addEventListener('touchmove', (e) => {
+            if (dragStartY === null || isTransitioning) return;
+            const touchY = e.touches[0].clientY;
+            const touchX = e.touches[0].clientX;
+            const dy = dragStartY - touchY; // positive = finger moved up
+            const dx = Math.abs(dragStartX - touchX);
 
-            // Only trigger if vertical swipe is dominant and exceeds threshold
-            if (Math.abs(dy) < SWIPE_THRESHOLD || dx > Math.abs(dy)) return;
+            // Haven't committed to a drag yet
+            if (!isDragging) {
+                if (Math.abs(dy) < DRAG_INIT_THRESHOLD) return;
+                // Must be more vertical than horizontal
+                if (dx > Math.abs(dy)) { dragStartY = null; return; }
 
-            const currentIdx = worldList.indexOf(currentWorld);
-            let nextIdx;
-            if (dy > 0) {
-                nextIdx = (currentIdx + 1) % worldList.length;
-            } else {
-                nextIdx = (currentIdx - 1 + worldList.length) % worldList.length;
+                // Commit to drag: capture snapshot, determine direction & next world
+                isDragging = true;
+                dragDirection = dy > 0 ? 1 : -1;
+                dragOriginalWorld = currentWorld;
+                const currentIdx = worldList.indexOf(currentWorld);
+                const nextIdx = dragDirection > 0
+                    ? (currentIdx + 1) % worldList.length
+                    : (currentIdx - 1 + worldList.length) % worldList.length;
+                dragNextWorld = worldList[nextIdx];
+
+                // Capture current frame, then switch canvas to next world
+                captureSnapshot();
+                switchWorld(dragNextWorld);
             }
-            const nextWorld = worldList[nextIdx];
-            const slideOut = dy > 0 ? '-100%' : '100%';
-            const slideIn = dy > 0 ? '100%' : '-100%';
 
-            // TikTok-style slide transition
+            // Only allow dragging in the committed direction
+            const dragPx = dy * dragDirection; // always positive when dragging in committed direction
+            const clampedPx = Math.max(0, dragPx);
+            const h = window.innerHeight;
+
+            // Snapshot (old world) slides out in drag direction
+            snapCanvas.style.transform = `translateY(${-clampedPx * dragDirection}px)`;
+            // Live canvas (new world) follows behind
+            canvasEl.style.transform = `translateY(${(h - clampedPx) * -dragDirection}px)`;
+        }, { passive: true });
+
+        canvasEl.addEventListener('touchend', (e) => {
+            if (!isDragging || isTransitioning) {
+                dragStartY = null;
+                return;
+            }
+
+            const touchY = e.changedTouches[0].clientY;
+            const dy = dragStartY - touchY;
+            const dragPx = Math.max(0, dy * dragDirection);
+            const h = window.innerHeight;
+            const progress = dragPx / h;
+            dragStartY = null;
+
             isTransitioning = true;
-            canvasEl.style.transition = `transform ${TRANSITION_MS}ms ease-in`;
-            canvasEl.style.transform = `translateY(${slideOut})`;
 
-            setTimeout(() => {
-                // Switch world while offscreen
-                switchWorld(nextWorld);
-                document.getElementById('worldSelect').value = nextWorld;
-
-                // Jump to opposite side instantly
-                canvasEl.style.transition = 'none';
-                canvasEl.style.transform = `translateY(${slideIn})`;
-
-                // Force reflow then slide in
-                canvasEl.offsetHeight;
+            if (progress > DRAG_COMMIT_THRESHOLD) {
+                // Commit: animate both to final positions
+                snapCanvas.style.transition = `transform ${TRANSITION_MS}ms ease-out`;
                 canvasEl.style.transition = `transform ${TRANSITION_MS}ms ease-out`;
+                snapCanvas.style.transform = `translateY(${-h * dragDirection}px)`;
                 canvasEl.style.transform = 'translateY(0)';
 
                 setTimeout(() => {
-                    isTransitioning = false;
-                    canvasEl.style.transition = '';
-                    canvasEl.style.transform = '';
+                    document.getElementById('worldSelect').value = dragNextWorld;
+                    cleanupDrag();
                 }, TRANSITION_MS);
-            }, TRANSITION_MS);
+            } else {
+                // Cancel: animate back, then restore original world
+                snapCanvas.style.transition = `transform ${TRANSITION_MS}ms ease-out`;
+                canvasEl.style.transition = `transform ${TRANSITION_MS}ms ease-out`;
+                snapCanvas.style.transform = 'translateY(0)';
+                canvasEl.style.transform = `translateY(${-h * dragDirection}px)`;
+
+                setTimeout(() => {
+                    switchWorld(dragOriginalWorld);
+                    cleanupDrag();
+                }, TRANSITION_MS);
+            }
         }, { passive: true });
 
         window.addEventListener('resize', () => {
