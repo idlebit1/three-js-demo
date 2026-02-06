@@ -85,6 +85,7 @@
         <select id="characterSelect">
             <option value="panda">Panda</option>
             <option value="sphere" selected>Sphere</option>
+            <option value="cube">Cube</option>
         </select>
         <label style="margin-top: 12px;">Reflection Mode</label>
         <select id="reflectionMode">
@@ -1108,9 +1109,32 @@
             };
         }
 
+        // Create cube character
+        function createCubeCharacter() {
+            const cubeGroup = new THREE.Group();
+
+            const cubeGeometry = new THREE.BoxGeometry(2.2, 2.2, 2.2);
+            const cubeBody = new THREE.Mesh(cubeGeometry, mirrorMaterial);
+            cubeBody.castShadow = true;
+            cubeBody.receiveShadow = true;
+            cubeBody.position.y = 1.8;
+            cubeGroup.add(cubeBody);
+
+            storeMorphData(cubeBody);
+
+            return {
+                group: cubeGroup,
+                body: cubeBody,
+                head: cubeBody,
+                parts: { body: cubeBody },
+                animateParts: { body: cubeBody }
+            };
+        }
+
         // Current character state
         let currentCharacter = pandaCharacter;
         let sphereCharacter = null; // Created lazily
+        let cubeCharacter = null; // Created lazily
 
         // Switch character function
         function switchCharacter(characterType) {
@@ -1124,11 +1148,15 @@
             if (characterType === 'panda') {
                 currentCharacter = pandaCharacter;
             } else if (characterType === 'sphere') {
-                // Create sphere if not exists
                 if (!sphereCharacter) {
                     sphereCharacter = createSphereCharacter();
                 }
                 currentCharacter = sphereCharacter;
+            } else if (characterType === 'cube') {
+                if (!cubeCharacter) {
+                    cubeCharacter = createCubeCharacter();
+                }
+                currentCharacter = cubeCharacter;
             }
 
             // Add new character to scene
@@ -4976,6 +5004,12 @@
                 const sphereBody = currentCharacter.body;
                 sphereBody.rotation.y = time * 0.5;
                 sphereBody.position.y = 1.8 + Math.sin(time * 2) * 0.1;
+            } else if (cubeCharacter && currentCharacter === cubeCharacter) {
+                // Cube-specific animation - slow rotation
+                const cubeBody = currentCharacter.body;
+                cubeBody.rotation.y = time * 0.3;
+                cubeBody.rotation.x = Math.sin(time * 0.2) * 0.15;
+                cubeBody.position.y = 1.8 + Math.sin(time * 1.5) * 0.08;
             }
 
             // Apply morph deformations if enabled (works for any character)
