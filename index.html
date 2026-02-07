@@ -4082,6 +4082,18 @@
                 ambientLight.intensity = lit.ambient.intensity;
                 keyLight.color.setHex(lit.key.color);
                 keyLight.intensity = lit.key.intensity;
+                // Plugin fog support
+                if (pr.plugin.fog) {
+                    const f = pr.plugin.fog;
+                    scene.fog = new THREE.FogExp2(f.color, f.density);
+                } else {
+                    scene.fog = null;
+                }
+                // Hide camera-attached lights for worlds with own lighting
+                const hideCam = !!pr.plugin.hideCameraLights;
+                keyLight.visible = !hideCam;
+                fillLight.visible = !hideCam;
+                rimLight.visible = !hideCam;
             }
 
             // Reset character and camera only when the world actually changes
@@ -5168,18 +5180,22 @@
                 // Zoom out gently as we go higher
                 targetCameraDistance = 8 + Math.min(charY * 0.12, 25);
 
-                // Smoothly move camera target to character position
-                const desiredTargetY = charY + 1.8;
-                controls.target.x += (charX - controls.target.x) * 0.15;
-                controls.target.y += (desiredTargetY - controls.target.y) * 0.15;
-                controls.target.z += (charZ - controls.target.z) * 0.15;
+                // Move camera target X/Z instantly with character (no lag)
+                const targetDx = charX - controls.target.x;
+                const targetDz = charZ - controls.target.z;
+                controls.target.x = charX;
+                controls.target.z = charZ;
+                camera.position.x += targetDx;
+                camera.position.z += targetDz;
 
-                // Camera stays at same height as target when grounded, rises above when floating
+                // Smooth Y follow
+                const desiredTargetY = charY + 1.8;
+                controls.target.y += (desiredTargetY - controls.target.y) * 0.15;
                 const cameraOffset = Math.min(charY * 0.15, 3);
                 const desiredCameraY = controls.target.y + cameraOffset;
                 camera.position.y += (desiredCameraY - camera.position.y) * 0.12;
 
-                // Follow character on X/Z while maintaining orbit distance
+                // Adjust orbit distance smoothly
                 const dx = camera.position.x - controls.target.x;
                 const dz = camera.position.z - controls.target.z;
                 const horizontalDist = Math.sqrt(dx * dx + dz * dz);
@@ -5408,9 +5424,17 @@
             freeMoveEnabled = e.target.checked;
         });
 
-        // Reverse move toggle
+        // Reverse move toggle — flip camera 180° around character
         document.getElementById('reverseMoveToggle').addEventListener('change', (e) => {
             reverseMoveEnabled = e.target.checked;
+            // Rotate camera 180° around the target
+            const offset = new THREE.Vector3().subVectors(camera.position, controls.target);
+            offset.x = -offset.x;
+            offset.z = -offset.z;
+            camera.position.copy(controls.target).add(offset);
+            camera.lookAt(controls.target);
+            controls.saveState();
+            controls.reset();
         });
 
         // Birds toggle
@@ -5705,6 +5729,7 @@
         await loadWorldPlugin('./worlds/canopy.js');
         await loadWorldPlugin('./worlds/valentine.js');
         await loadWorldPlugin('./worlds/rabbit.js');
+        await loadWorldPlugin('./worlds/church.js');
 
         // Initialize first world
         switchWorld('bamboo');
