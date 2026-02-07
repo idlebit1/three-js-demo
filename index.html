@@ -3207,7 +3207,7 @@
                     lastInteractionTime = now;
                     if (event.touches) event.preventDefault();
                     if (freeMoveEnabled && isFloatWorld()) {
-                        freeMoveCharacter(clientX, clientY);
+                        freeMoveForward();
                     } else {
                         handleCharacterTap(intersect);
                     }
@@ -3221,11 +3221,11 @@
                 return;
             }
 
-            // No hit — free move on empty space
+            // No hit — free move on empty space (up/down)
             if (freeMoveEnabled && isFloatWorld()) {
                 lastInteractionTime = now;
                 if (event.touches) event.preventDefault();
-                freeMoveCharacter(clientX, clientY);
+                freeMoveVertical(clientY);
             }
         }
 
@@ -4537,9 +4537,17 @@
         let characterVelocityX = 0;
         let characterVelocityZ = 0;
 
-        function freeMoveCharacter(screenX, screenY) {
-            if (!freeMoveEnabled || !isFloatWorld()) return false;
+        function freeMoveForward() {
+            const forward = new THREE.Vector3();
+            camera.getWorldDirection(forward);
+            forward.y = 0;
+            forward.normalize();
+            characterVelocityX += forward.x * 2.0;
+            characterVelocityZ += forward.z * 2.0;
+            playSound('sphereTap');
+        }
 
+        function freeMoveVertical(screenY) {
             // Project character position to screen space
             const charPos = currentCharacter.group.position.clone();
             charPos.project(camera);
@@ -4549,26 +4557,14 @@
             const rect = renderer.domElement.getBoundingClientRect();
             const clickNdcY = -((screenY - rect.top) / rect.height) * 2 + 1;
 
-            const diff = clickNdcY - charScreenY;
-            const threshold = 0.15; // dead zone around character = "on character"
-
-            if (diff < -threshold) {
+            if (clickNdcY < charScreenY) {
                 // Clicked below character → move up
                 boostCharacterUp();
-            } else if (diff > threshold) {
+            } else {
                 // Clicked above character → push down
                 characterVelocityY -= floatBoost * 0.8;
-            } else {
-                // Clicked on character → move forward (along camera look direction on XZ)
-                const forward = new THREE.Vector3();
-                camera.getWorldDirection(forward);
-                forward.y = 0;
-                forward.normalize();
-                characterVelocityX += forward.x * 2.0;
-                characterVelocityZ += forward.z * 2.0;
             }
             playSound('sphereTap');
-            return true;
         }
 
         // ============================================
