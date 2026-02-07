@@ -4514,6 +4514,9 @@
             const geometry = mesh.geometry;
             const positions = geometry.attributes.position;
             mesh.userData.originalPositions = new Float32Array(positions.array);
+            if (geometry.attributes.normal) {
+                mesh.userData.originalNormals = new Float32Array(geometry.attributes.normal.array);
+            }
             return mesh;
         }
 
@@ -4926,7 +4929,12 @@
             }
 
             positions.needsUpdate = true;
-            geometry.computeVertexNormals();
+            if (mesh.userData.originalNormals) {
+                geometry.attributes.normal.array.set(mesh.userData.originalNormals);
+                geometry.attributes.normal.needsUpdate = true;
+            } else {
+                geometry.computeVertexNormals();
+            }
         }
 
         // Clean up expired impacts
