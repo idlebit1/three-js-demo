@@ -5061,6 +5061,7 @@
             for (const pName in pluginRegistry) {
                 if (currentWorld === pName) {
                     const pr = pluginRegistry[pName];
+                    pr.group.userData.charY = currentCharacter.group.position.y;
                     pr.plugin.animate(pr.state, time, deltaTime, pr.group);
                 }
             }
@@ -5604,6 +5605,7 @@
         await loadWorldPlugin('./worlds/eruption.js');
         await loadWorldPlugin('./worlds/canopy.js');
         await loadWorldPlugin('./worlds/valentine.js');
+        await loadWorldPlugin('./worlds/rabbit.js');
 
         // Initialize first world
         switchWorld('bamboo');
