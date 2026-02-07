@@ -5303,9 +5303,8 @@
                 controls.enableZoom = false;
                 controls.enablePan = false;
                 controls.enableDamping = false;
-                const polar = controls.getPolarAngle();
-                controls.minPolarAngle = polar;
-                controls.maxPolarAngle = polar;
+                controls.minPolarAngle = 0;
+                controls.maxPolarAngle = Math.PI;
             } else {
                 controls.enableRotate = false;
                 controls.enableZoom = false;
