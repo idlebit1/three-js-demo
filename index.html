@@ -5417,6 +5417,7 @@
         let dragOriginalWorld = null;
         let dragNextWorld = null;
         let dragStartTime = 0;
+        let dragSavedState = null; // saved state for cancel restore
         const DRAG_COMMIT_THRESHOLD = 0.25; // 25% of screen height for slow drags
         const VELOCITY_THRESHOLD = 0.5; // px/ms - above this, commit regardless of distance
         const TRANSITION_MS = 250;
@@ -5488,6 +5489,15 @@
                     : (currentIdx - 1 + worldList.length) % worldList.length;
                 dragNextWorld = worldList[nextIdx];
 
+                // Save current state for restore on cancel
+                dragSavedState = {
+                    cameraPos: camera.position.clone(),
+                    controlsTarget: controls.target.clone(),
+                    charPos: currentCharacter.group.position.clone(),
+                    charRotX: currentCharacter.group.rotation.x,
+                    charVelY: characterVelocityY,
+                    time: time,
+                };
                 // Capture current frame, then switch canvas to next world
                 captureSnapshot();
                 switchWorld(dragNextWorld);
@@ -5524,6 +5534,7 @@
 
             if (shouldCommit) {
                 // Commit: animate both to final positions
+                dragSavedState = null;
                 snapCanvas.style.transition = `transform ${TRANSITION_MS}ms ease-out`;
                 canvasEl.style.transition = `transform ${TRANSITION_MS}ms ease-out`;
                 snapCanvas.style.transform = `translateY(${-h * dragDirection}px)`;
@@ -5542,7 +5553,21 @@
                 canvasEl.style.transform = `translateY(${h * dragDirection}px)`;
 
                 setTimeout(() => {
+                    // Restore original world without resetting state
+                    currentWorld = dragOriginalWorld;
                     switchWorld(dragOriginalWorld);
+                    // Restore saved state so it feels like unpausing
+                    if (dragSavedState) {
+                        camera.position.copy(dragSavedState.cameraPos);
+                        controls.target.copy(dragSavedState.controlsTarget);
+                        currentCharacter.group.position.copy(dragSavedState.charPos);
+                        currentCharacter.group.rotation.x = dragSavedState.charRotX;
+                        characterVelocityY = dragSavedState.charVelY;
+                        time = dragSavedState.time;
+                        controls.saveState();
+                        controls.reset();
+                        dragSavedState = null;
+                    }
                     cleanupDrag();
                 }, cancelMs);
             }
