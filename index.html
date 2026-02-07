@@ -78,6 +78,10 @@
             <input type="checkbox" id="lockCameraToggle" checked style="margin-right: 6px;">
             Lock Camera
         </label>
+        <label>
+            <input type="checkbox" id="allowOrbitToggle" checked style="margin-right: 6px;">
+            Allow Orbit
+        </label>
         <label style="margin-top: 6px;">World</label>
         <select id="worldSelect">
         </select>
@@ -5281,11 +5285,32 @@
         });
 
         // Lock camera toggle
-        document.getElementById('lockCameraToggle').addEventListener('change', (e) => {
-            controls.enableRotate = !e.target.checked;
-            controls.enableZoom = !e.target.checked;
-            controls.enablePan = !e.target.checked;
-        });
+        function applyCameraLock() {
+            const locked = document.getElementById('lockCameraToggle').checked;
+            const allowOrbit = document.getElementById('allowOrbitToggle').checked;
+            if (!locked) {
+                controls.enableRotate = true;
+                controls.enableZoom = true;
+                controls.enablePan = true;
+                controls.minPolarAngle = 0;
+                controls.maxPolarAngle = Math.PI;
+            } else if (allowOrbit) {
+                controls.enableRotate = true;
+                controls.enableZoom = false;
+                controls.enablePan = false;
+                const polar = controls.getPolarAngle();
+                controls.minPolarAngle = polar;
+                controls.maxPolarAngle = polar;
+            } else {
+                controls.enableRotate = false;
+                controls.enableZoom = false;
+                controls.enablePan = false;
+                controls.minPolarAngle = 0;
+                controls.maxPolarAngle = Math.PI;
+            }
+        }
+        document.getElementById('lockCameraToggle').addEventListener('change', applyCameraLock);
+        document.getElementById('allowOrbitToggle').addEventListener('change', applyCameraLock);
 
         // Birds toggle
         document.getElementById('birdsToggle').addEventListener('change', (e) => {
@@ -5371,9 +5396,7 @@
         });
 
         // Apply defaults: lock camera, sphere character, interactive mode
-        controls.enableRotate = false;
-        controls.enableZoom = false;
-        controls.enablePan = false;
+        applyCameraLock();
         switchCharacter('sphere');
         interactiveMode = true;
         renderer.domElement.style.cursor = 'crosshair';
