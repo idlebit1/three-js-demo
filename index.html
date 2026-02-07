@@ -82,6 +82,10 @@
             <input type="checkbox" id="allowOrbitToggle" checked style="margin-right: 6px;">
             Allow Orbit
         </label>
+        <label>
+            <input type="checkbox" id="freeMoveToggle" checked style="margin-right: 6px;">
+            Free Move
+        </label>
         <label style="margin-top: 6px;">World</label>
         <select id="worldSelect">
         </select>
@@ -3200,10 +3204,13 @@
 
                 // Check if this is the character (sphere/panda body)
                 if (clickableMeshes.includes(obj)) {
-                    // Character hit - handle sphere/panda interaction
                     lastInteractionTime = now;
                     if (event.touches) event.preventDefault();
-                    handleCharacterTap(intersect);
+                    if (freeMoveEnabled && isFloatWorld()) {
+                        freeMoveCharacter(clientX, clientY);
+                    } else {
+                        handleCharacterTap(intersect);
+                    }
                     return;
                 }
 
@@ -3212,6 +3219,13 @@
                 if (event.touches) event.preventDefault();
                 handleInteraction(intersect);
                 return;
+            }
+
+            // No hit — free move on empty space
+            if (freeMoveEnabled && isFloatWorld()) {
+                lastInteractionTime = now;
+                if (event.touches) event.preventDefault();
+                freeMoveCharacter(clientX, clientY);
             }
         }
 
@@ -4073,9 +4087,11 @@
 
             // Reset character and camera only when the world actually changes
             if (worldName !== prevWorld) {
-                currentCharacter.group.position.y = groundLevel;
+                currentCharacter.group.position.set(0, groundLevel, 0);
                 currentCharacter.group.rotation.x = 0;
                 characterVelocityY = 0;
+                characterVelocityX = 0;
+                characterVelocityZ = 0;
                 camera.position.set(0, 1.8, 8);
                 controls.target.set(0, 1.8, 0);
                 controls.maxDistance = isFloatWorld() ? 100 : 30;
@@ -4496,6 +4512,12 @@
             // Update character position
             currentCharacter.group.position.y += characterVelocityY * deltaTime * 10;
 
+            // Apply XZ movement (free move)
+            characterVelocityX *= 0.95;
+            characterVelocityZ *= 0.95;
+            currentCharacter.group.position.x += characterVelocityX * deltaTime * 10;
+            currentCharacter.group.position.z += characterVelocityZ * deltaTime * 10;
+
             // Ground collision
             if (currentCharacter.group.position.y < groundLevel) {
                 currentCharacter.group.position.y = groundLevel;
@@ -4509,6 +4531,44 @@
         function boostCharacterUp() {
             if (!isFloatWorld()) return;
             characterVelocityY += floatBoost * 1.2;
+        }
+
+        let freeMoveEnabled = true;
+        let characterVelocityX = 0;
+        let characterVelocityZ = 0;
+
+        function freeMoveCharacter(screenX, screenY) {
+            if (!freeMoveEnabled || !isFloatWorld()) return false;
+
+            // Project character position to screen space
+            const charPos = currentCharacter.group.position.clone();
+            charPos.project(camera);
+            const charScreenY = charPos.y; // NDC: -1 bottom, +1 top
+
+            // Click position in NDC
+            const rect = renderer.domElement.getBoundingClientRect();
+            const clickNdcY = -((screenY - rect.top) / rect.height) * 2 + 1;
+
+            const diff = clickNdcY - charScreenY;
+            const threshold = 0.15; // dead zone around character = "on character"
+
+            if (diff < -threshold) {
+                // Clicked below character → move up
+                boostCharacterUp();
+            } else if (diff > threshold) {
+                // Clicked above character → push down
+                characterVelocityY -= floatBoost * 0.8;
+            } else {
+                // Clicked on character → move forward (along camera look direction on XZ)
+                const forward = new THREE.Vector3();
+                camera.getWorldDirection(forward);
+                forward.y = 0;
+                forward.normalize();
+                characterVelocityX += forward.x * 2.0;
+                characterVelocityZ += forward.z * 2.0;
+            }
+            playSound('sphereTap');
+            return true;
         }
 
         // ============================================
@@ -5061,7 +5121,9 @@
             for (const pName in pluginRegistry) {
                 if (currentWorld === pName) {
                     const pr = pluginRegistry[pName];
+                    pr.group.userData.charX = currentCharacter.group.position.x;
                     pr.group.userData.charY = currentCharacter.group.position.y;
+                    pr.group.userData.charZ = currentCharacter.group.position.z;
                     pr.plugin.animate(pr.state, time, deltaTime, pr.group);
                 }
             }
@@ -5080,28 +5142,32 @@
 
             // Camera follow for float worlds
             if (isFloatWorld()) {
+                const charX = currentCharacter.group.position.x;
                 const charY = currentCharacter.group.position.y;
+                const charZ = currentCharacter.group.position.z;
 
                 // Zoom out gently as we go higher
                 targetCameraDistance = 8 + Math.min(charY * 0.12, 25);
 
-                // Smoothly move camera target to character level
+                // Smoothly move camera target to character position
                 const desiredTargetY = charY + 1.8;
+                controls.target.x += (charX - controls.target.x) * 0.15;
                 controls.target.y += (desiredTargetY - controls.target.y) * 0.15;
+                controls.target.z += (charZ - controls.target.z) * 0.15;
 
                 // Camera stays at same height as target when grounded, rises above when floating
                 const cameraOffset = Math.min(charY * 0.15, 3);
                 const desiredCameraY = controls.target.y + cameraOffset;
                 camera.position.y += (desiredCameraY - camera.position.y) * 0.12;
 
-                // Adjust horizontal distance smoothly
-                const horizontalDist = Math.sqrt(
-                    Math.pow(camera.position.x, 2) + Math.pow(camera.position.z, 2)
-                );
+                // Follow character on X/Z while maintaining orbit distance
+                const dx = camera.position.x - controls.target.x;
+                const dz = camera.position.z - controls.target.z;
+                const horizontalDist = Math.sqrt(dx * dx + dz * dz);
                 if (Math.abs(horizontalDist - targetCameraDistance) > 0.3) {
                     const scale = 1 + (targetCameraDistance - horizontalDist) * 0.03;
-                    camera.position.x *= scale;
-                    camera.position.z *= scale;
+                    camera.position.x = controls.target.x + dx * scale;
+                    camera.position.z = controls.target.z + dz * scale;
                 }
 
                 controls.maxDistance = targetCameraDistance + 20;
@@ -5318,6 +5384,11 @@
         document.getElementById('lockCameraToggle').addEventListener('change', applyCameraLock);
         document.getElementById('allowOrbitToggle').addEventListener('change', applyCameraLock);
 
+        // Free move toggle
+        document.getElementById('freeMoveToggle').addEventListener('change', (e) => {
+            freeMoveEnabled = e.target.checked;
+        });
+
         // Birds toggle
         document.getElementById('birdsToggle').addEventListener('change', (e) => {
             birdsEnabled = e.target.checked;
@@ -5497,6 +5568,8 @@
                     charPos: currentCharacter.group.position.clone(),
                     charRotX: currentCharacter.group.rotation.x,
                     charVelY: characterVelocityY,
+                    charVelX: characterVelocityX,
+                    charVelZ: characterVelocityZ,
                     time: time,
                 };
                 // Capture current frame, then switch canvas to next world
@@ -5564,6 +5637,8 @@
                         currentCharacter.group.position.copy(dragSavedState.charPos);
                         currentCharacter.group.rotation.x = dragSavedState.charRotX;
                         characterVelocityY = dragSavedState.charVelY;
+                        characterVelocityX = dragSavedState.charVelX;
+                        characterVelocityZ = dragSavedState.charVelZ;
                         time = dragSavedState.time;
                         controls.saveState();
                         controls.reset();

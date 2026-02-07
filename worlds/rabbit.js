@@ -453,11 +453,13 @@ export default {
 
         // Companion rabbit follows character
         const comp = state.companion;
+        const charX = group.userData.charX || 0;
         const charY = group.userData.charY || 0;
+        const charZ = group.userData.charZ || 0;
         const targetY = charY - 0.5;
         comp.position.y += (targetY - comp.position.y) * 0.04;
-        comp.position.x = 2 + Math.sin(time * 0.5) * 1.5;
-        comp.position.z = 2 + Math.cos(time * 0.5) * 1.5;
+        comp.position.x = charX + 2 + Math.sin(time * 0.5) * 1.5;
+        comp.position.z = charZ + 2 + Math.cos(time * 0.5) * 1.5;
         // Face movement direction
         comp.rotation.y = -time * 0.5 + Math.PI;
         // Hop
