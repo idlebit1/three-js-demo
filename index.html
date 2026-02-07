@@ -4079,6 +4079,9 @@
                 camera.position.set(0, 1.8, 8);
                 controls.target.set(0, 1.8, 0);
                 controls.maxDistance = isFloatWorld() ? 100 : 30;
+                // Kill any orbit momentum and re-lock polar angle
+                controls.update();
+                applyCameraLock();
             }
 
             // Update high detail for new world
@@ -5292,12 +5295,14 @@
                 controls.enableRotate = true;
                 controls.enableZoom = true;
                 controls.enablePan = true;
+                controls.enableDamping = true;
                 controls.minPolarAngle = 0;
                 controls.maxPolarAngle = Math.PI;
             } else if (allowOrbit) {
                 controls.enableRotate = true;
                 controls.enableZoom = false;
                 controls.enablePan = false;
+                controls.enableDamping = false;
                 const polar = controls.getPolarAngle();
                 controls.minPolarAngle = polar;
                 controls.maxPolarAngle = polar;
@@ -5305,6 +5310,7 @@
                 controls.enableRotate = false;
                 controls.enableZoom = false;
                 controls.enablePan = false;
+                controls.enableDamping = false;
                 controls.minPolarAngle = 0;
                 controls.maxPolarAngle = Math.PI;
             }
