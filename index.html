@@ -4079,9 +4079,9 @@
                 camera.position.set(0, 1.8, 8);
                 controls.target.set(0, 1.8, 0);
                 controls.maxDistance = isFloatWorld() ? 100 : 30;
-                // Kill any orbit momentum and re-lock polar angle
-                controls.update();
-                applyCameraLock();
+                // Save this as home state and reset to clear all internal deltas
+                controls.saveState();
+                controls.reset();
             }
 
             // Update high detail for new world
