@@ -86,6 +86,10 @@
             <input type="checkbox" id="freeMoveToggle" checked style="margin-right: 6px;">
             Free Move
         </label>
+        <label>
+            <input type="checkbox" id="reverseMoveToggle" style="margin-right: 6px;">
+            Reverse
+        </label>
         <label style="margin-top: 6px;">World</label>
         <select id="worldSelect">
         </select>
@@ -3207,7 +3211,7 @@
                     lastInteractionTime = now;
                     if (event.touches) event.preventDefault();
                     if (freeMoveEnabled && isFloatWorld()) {
-                        freeMoveForward();
+                        freeMoveFromHit(clientX, clientY);
                     } else {
                         handleCharacterTap(intersect);
                     }
@@ -3221,12 +3225,7 @@
                 return;
             }
 
-            // No hit — free move on empty space (up/down)
-            if (freeMoveEnabled && isFloatWorld()) {
-                lastInteractionTime = now;
-                if (event.touches) event.preventDefault();
-                freeMoveVertical(clientY);
-            }
+            // No hit on empty space — do nothing
         }
 
         // Add event listeners for interaction (tap onset: mousedown + touchstart)
@@ -4534,38 +4533,61 @@
         }
 
         let freeMoveEnabled = true;
+        let reverseMoveEnabled = false;
         let characterVelocityX = 0;
         let characterVelocityZ = 0;
 
-        function freeMoveForward() {
-            const forward = new THREE.Vector3();
-            camera.getWorldDirection(forward);
-            forward.y = 0;
-            forward.normalize();
-            characterVelocityX += forward.x * 2.0;
-            characterVelocityZ += forward.z * 2.0;
-            playSound('sphereTap');
-        }
-
-        function freeMoveVertical(screenY) {
-            // Project character position to screen space
+        function freeMoveFromHit(screenX, screenY) {
+            // Project character center to screen
             const charPos = currentCharacter.group.position.clone();
             charPos.project(camera);
-            const charScreenY = charPos.y; // NDC: -1 bottom, +1 top
-
-            // Click position in NDC
             const rect = renderer.domElement.getBoundingClientRect();
-            const clickNdcY = -((screenY - rect.top) / rect.height) * 2 + 1;
+            const charScrX = (charPos.x + 1) / 2 * rect.width + rect.left;
+            const charScrY = (-charPos.y + 1) / 2 * rect.height + rect.top;
 
-            if (clickNdcY < charScreenY) {
-                // Clicked below character → move up
-                boostCharacterUp();
+            const dx = screenX - charScrX;
+            const dy = screenY - charScrY;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+
+            // Center zone = inner 30% of apparent radius
+            const apparentRadius = rect.height * 0.12; // rough sphere screen size
+            if (dist < apparentRadius * 0.3) {
+                // Center → forward (or backward if reversed)
+                const forward = new THREE.Vector3();
+                camera.getWorldDirection(forward);
+                forward.y = 0;
+                forward.normalize();
+                const dir = reverseMoveEnabled ? -1 : 1;
+                characterVelocityX += forward.x * 2.0 * dir;
+                characterVelocityZ += forward.z * 2.0 * dir;
+            } else if (Math.abs(dy) > Math.abs(dx)) {
+                // Vertical dominant
+                if (dy > 0) {
+                    // Bottom quarter → up
+                    boostCharacterUp();
+                } else {
+                    // Top quarter → down
+                    characterVelocityY -= floatBoost * 0.8;
+                }
             } else {
-                // Clicked above character → push down
-                characterVelocityY -= floatBoost * 0.8;
+                // Horizontal dominant → turn
+                const turnAmount = 0.15; // radians
+                const azimuth = dx < 0 ? turnAmount : -turnAmount;
+                // Rotate camera around target
+                const offset = new THREE.Vector3().subVectors(camera.position, controls.target);
+                const cos = Math.cos(azimuth), sin = Math.sin(azimuth);
+                const nx = offset.x * cos - offset.z * sin;
+                const nz = offset.x * sin + offset.z * cos;
+                camera.position.x = controls.target.x + nx;
+                camera.position.z = controls.target.z + nz;
+                camera.lookAt(controls.target);
+                controls.saveState();
+                controls.reset();
             }
             playSound('sphereTap');
         }
+
+
 
         // ============================================
         // MORPH SETUP - Store original vertex positions
@@ -5383,6 +5405,11 @@
         // Free move toggle
         document.getElementById('freeMoveToggle').addEventListener('change', (e) => {
             freeMoveEnabled = e.target.checked;
+        });
+
+        // Reverse move toggle
+        document.getElementById('reverseMoveToggle').addEventListener('change', (e) => {
+            reverseMoveEnabled = e.target.checked;
         });
 
         // Birds toggle
