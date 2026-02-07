@@ -4538,8 +4538,9 @@
         let characterVelocityZ = 0;
 
         function freeMoveFromHit(screenX, screenY) {
-            // Project character center to screen
+            // Project visual center of sphere to screen (group pos + sphere radius up)
             const charPos = currentCharacter.group.position.clone();
+            charPos.y += 1.5; // sphere radius offset to visual center
             charPos.project(camera);
             const rect = renderer.domElement.getBoundingClientRect();
             const charScrX = (charPos.x + 1) / 2 * rect.width + rect.left;
@@ -4549,9 +4550,9 @@
             const dy = screenY - charScrY;
             const dist = Math.sqrt(dx * dx + dy * dy);
 
-            // Center zone = inner 30% of apparent radius
-            const apparentRadius = rect.height * 0.12; // rough sphere screen size
-            if (dist < apparentRadius * 0.3) {
+            // Center zone = inner 35% of apparent radius
+            const apparentRadius = Math.max(rect.height * 0.12, 40);
+            if (dist < apparentRadius * 0.35) {
                 // Center → forward (or backward if reversed)
                 const forward = new THREE.Vector3();
                 camera.getWorldDirection(forward);
